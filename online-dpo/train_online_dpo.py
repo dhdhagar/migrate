@@ -27,6 +27,15 @@ class SimPairJudge(BasePairwiseJudge):
         self.target = target
         self.model_sim = AutoModel.from_pretrained(embedder).to(DEVICE)
         self.tokenizer_sim = AutoTokenizer.from_pretrained(embedder)
+        self.similarities = []
+
+    def plot_similarities(self):
+        plt.plot(self.similarities)
+        plt.ylabel("Cosine Similarity")
+        plt.xlabel("Global Step")
+        plt.savefig("scores.png")
+        plt.show()
+
     def get_sim(self, x1, x2):
         texts = [f"What is a {x1}?", f"What is a {x2}?"]
         inputs = self.tokenizer_sim(
@@ -116,3 +125,4 @@ if __name__ == "__main__":
         peft_config=peft_config,
     )
     trainer.train()
+    judge.plot_similarities()
