@@ -115,7 +115,7 @@ if __name__ == "__main__":
         {
             "prompt": [
                 {
-                    "content": "The task is to guess a hidden word from the English dictionary. Respond with a single word as your guess.",
+                    "content": 'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word English words. Now, guess exactly n=%s new word(s) that could be the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {{"response": ["word1", "word2",...]}})',
                     "role": "user",
                 }
             ]
