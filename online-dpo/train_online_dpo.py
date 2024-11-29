@@ -1,5 +1,6 @@
 from datasets import load_dataset, Dataset
-from trl import OnlineDPOConfig, OnlineDPOTrainer, PairRMJudge, BasePairwiseJudge
+from trl import OnlineDPOConfig, BasePairwiseJudge
+from SemantleOnlineDPOTrainer import SemantleOnlineDPOTrainer
 from transformers import (
     AutoModel,
     AutoModelForCausalLM,
@@ -132,7 +133,7 @@ if __name__ == "__main__":
         bf16=True,
         use_cpu=True,
     )
-    trainer = OnlineDPOTrainer(
+    trainer = SemantleOnlineDPOTrainer(
         model=model,
         judge=judge,
         # reward_model=reward_model,
