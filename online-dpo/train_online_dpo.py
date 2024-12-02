@@ -64,19 +64,6 @@ class SimPairJudge(BasePairwiseJudge):
         return out
 
 
-class RewardModel(torch.nn.Module):
-    def __init__(
-        self,
-        reward,
-    ):
-        super(RewardModel, self).__init__()
-        self.reward = reward
-
-    def forward(self, x):
-        # print(x)
-        return self.reward
-
-
 if __name__ == "__main__":
     # model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
     # model_name = "Qwen/Qwen2-0.5B-Instruct"
@@ -108,10 +95,6 @@ if __name__ == "__main__":
     model.generation_config.pad_token_id = tokenizer.pad_token_id
     judge = SimPairJudge("computer", "princeton-nlp/sup-simcse-roberta-large")
     # judge = PairRMJudge()
-    # reward_model = RewardModel(1)
-    # reward_tokenizer = AutoTokenizer.from_pretrained(
-    #     model_name
-    # )
     dataset = [
         {
             "prompt": [
@@ -136,8 +119,6 @@ if __name__ == "__main__":
     trainer = SemantleOnlineDPOTrainer(
         model=model,
         judge=judge,
-        # reward_model=reward_model,
-        # reward_processing_class=reward_tokenizer,
         args=training_args,
         processing_class=tokenizer,
         train_dataset=train_dataset,
