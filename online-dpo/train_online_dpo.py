@@ -138,6 +138,9 @@ if __name__ == "__main__":
         processing_class=tokenizer,
         train_dataset=train_dataset,
         peft_config=peft_config,
+        tokenizer=tokenizer,
+        target="computer",
+        num_guesses=num_guesses,
     )
     # trainer = OnlineDPOTrainerV2(
     #     model=model,
