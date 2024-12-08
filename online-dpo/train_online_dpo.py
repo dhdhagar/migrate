@@ -32,6 +32,7 @@ class SimPairJudge(BasePairwiseJudge):
 
     def plot_similarities(self):
         plt.plot(self.similarities)
+        plt.plot(np.maximum.accumulate(self.similarities))
         plt.ylabel("Cosine Similarity")
         plt.xlabel("Global Step")
         plt.savefig("scores.png")
