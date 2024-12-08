@@ -1,6 +1,6 @@
 from datasets import load_dataset, Dataset
 from trl import OnlineDPOConfig, BasePairwiseJudge
-from SemantleOnlineDPOTrainer import SemantleOnlineDPOTrainer
+from SemantleOnlineDPOTrainer import SemantleOnlineDPOTrainer, OnlineDPOTrainerV2
 from transformers import (
     AutoModel,
     AutoModelForCausalLM,
