@@ -89,6 +89,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 attention_mask=prompt_mask,
                 generation_config=self.generation_config,
             )
+        # Replace the second output with the target word (prompt + target)
         target_ids = self.ref_tokenizer(
             self.ref_tokenizer.decode(prompt_ids[0], skip_special_tokens=True)
             + self.target,
