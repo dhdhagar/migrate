@@ -96,16 +96,17 @@ if __name__ == "__main__":
     model.generation_config.pad_token_id = tokenizer.pad_token_id
     judge = SimPairJudge("computer", "princeton-nlp/sup-simcse-roberta-large")
     # judge = PairRMJudge()
+    num_guesses = 5
     dataset = [
         {
             "prompt": [
                 {
-                    "content": 'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word English words. Now, guess exactly n=%s new word(s) that could be the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {{"response": ["word1", "word2",...]}})',
+                    "content": f'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word English words. Now, guess exactly n={num_guesses} new word(s) that could be the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {{"response": ["word1", "word2",...]}})',
                     "role": "user",
                 }
             ]
         }
-        for _ in range(100)
+        for _ in range(500)
     ]
     train_dataset = Dataset.from_list(dataset)
     del dataset
