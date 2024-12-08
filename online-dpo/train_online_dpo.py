@@ -1,3 +1,4 @@
+import json
 from datasets import load_dataset, Dataset
 from trl import OnlineDPOConfig, BasePairwiseJudge
 from SemantleOnlineDPOTrainer import SemantleOnlineDPOTrainer, OnlineDPOTrainerV2
@@ -53,15 +54,26 @@ class SimPairJudge(BasePairwiseJudge):
     def judge(self, prompts, completions, shuffle_order=False):
         out = []
         sims = []
-        # print(completions)
         for completion in completions:
-            sim0 = self.get_sim(completion[0], self.target)
-            sim1 = self.get_sim(completion[1], self.target)
+            sim0 = 0
+            sim1 = 0
+            try:
+                completion0 = json.loads(completion[0])["response"]
+                for guess in completion0:
+                    sim0 = max(sim0, self.get_sim(guess, self.target))
+            except:
+                sim0 = self.get_sim(completion[0], self.target)
+            try:
+                completion1 = json.loads(completion[1])["response"]
+                for guess in completion1:
+                    sim1 = max(sim1, self.get_sim(guess, self.target))
+            except:
+                sim1 = self.get_sim(completion[1], self.target)
             sims.append(sim0)
             sims.append(sim1)
             # print(sim0, sim1)
-            out.append(sim0 > sim1)
-        self.similarities.append(np.mean(sims))
+            out.append(sim0 < sim1)
+        self.similarities.append(np.max(sims))
         return out
 
 
