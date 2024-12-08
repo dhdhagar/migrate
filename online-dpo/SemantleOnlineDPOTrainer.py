@@ -1,3 +1,4 @@
+import json
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import jinja2
 from trl import (
@@ -47,11 +48,12 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
-    def __init__(self, tokenizer, target, num_guesses, *args, **kwargs):
+    def __init__(self, tokenizer, target, num_guesses, logfile, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ref_tokenizer = tokenizer
         self.target = target
         self.num_guesses = num_guesses
+        self.logfile = logfile
 
     def training_step(
         self,
@@ -94,6 +96,20 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         ).input_ids.to(DEVICE)
         output[1] = torch.tensor(128009).repeat(output[1].shape)
         output[1, : target_ids.shape[1]] = target_ids
+        new_guess = {
+            "guess": self.ref_tokenizer.decode(
+                output[0, context_length:], skip_special_tokens=True
+            )
+        }
+        try:
+            with open(self.logfile, "r") as file:
+                data = json.load(file)
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = []
+        data.append(new_guess)
+        with open(self.logfile, "w") as file:
+            json.dump(data, file, indent=4)
+
         del inputs
 
         completion_ids = output[:, context_length:]
