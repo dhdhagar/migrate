@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from datasets import load_dataset, Dataset
 from trl import OnlineDPOConfig, BasePairwiseJudge
 from SemantleOnlineDPOTrainer import SemantleOnlineDPOTrainer, OnlineDPOTrainerV2
@@ -131,6 +132,7 @@ if __name__ == "__main__":
         use_cpu=True,
         learning_rate=1e-5,
     )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     trainer = SemantleOnlineDPOTrainer(
         model=model,
         judge=judge,
@@ -141,6 +143,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         target="computer",
         num_guesses=num_guesses,
+        logfile=f"logs/logfile_{timestamp}.log",
     )
     # trainer = OnlineDPOTrainerV2(
     #     model=model,
