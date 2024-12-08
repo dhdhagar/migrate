@@ -44,6 +44,10 @@ logger = logging.get_logger(__name__)
 
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
+
+
+class OnlineDPOTrainerV2(OnlineDPOTrainer):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -57,7 +61,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
         # Apply chat template and tokenize the input.
         # We do this on-the-fly to enable the use of reward models and policies with different tokenizers / chat templates.
-        batch_size = len(next(iter(inputs.values())))
+        batch_size = 1
         prompts = inputs["prompt"]
         inputs = [{k: v[i] for k, v in inputs.items()} for i in range(batch_size)]
         inputs = [maybe_apply_chat_template(x, self.processing_class) for x in inputs]
@@ -147,7 +151,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 template = environment.from_string(SIMPLE_CHAT_TEMPLATE)
                 prompts = [template.render(messages=prompt) for prompt in prompts]
                 completions = [
-                    template.render(messages=completion) for completion in completions
+                    completion[0]["content"].strip() for completion in completions
                 ]
 
             ranks_of_first_completion = self.judge.judge(
