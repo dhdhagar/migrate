@@ -117,6 +117,7 @@ if __name__ == "__main__":
         fp16=False,
         bf16=True,
         use_cpu=True,
+        learning_rate=1e-5,
     )
     trainer = SemantleOnlineDPOTrainer(
         model=model,
