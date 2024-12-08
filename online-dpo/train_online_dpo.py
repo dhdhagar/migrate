@@ -126,5 +126,14 @@ if __name__ == "__main__":
         train_dataset=train_dataset,
         peft_config=peft_config,
     )
+    # trainer = OnlineDPOTrainerV2(
+    #     model=model,
+    #     judge=judge,
+    #     args=training_args,
+    #     processing_class=tokenizer,
+    #     train_dataset=train_dataset,
+    #     peft_config=peft_config,
+    #     tokenizer=tokenizer,
+    # )
     trainer.train()
     judge.plot_similarities()
