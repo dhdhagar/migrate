@@ -46,6 +46,18 @@ logger = logging.get_logger(__name__)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+# Log LLM repsonse
+def logResponse(response, logfile):
+    try:
+        with open(logfile, "r") as file:
+            data = json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = []
+    data.append(response)
+    with open(logfile, "w") as file:
+        json.dump(data, file, indent=4)
+
+
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(self, tokenizer, target, num_guesses, logfile, *args, **kwargs):
@@ -110,7 +122,11 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         data.append(new_guess)
         with open(self.logfile, "w") as file:
             json.dump(data, file, indent=4)
+        response = self.ref_tokenizer.decode(
+            output[0, context_length:], skip_special_tokens=True
+        )
 
+        logResponse({"guess": response}, self.logfile)  # Log response
         del inputs
 
         completion_ids = output[:, context_length:]
