@@ -34,12 +34,16 @@ class SimPairJudge(BasePairwiseJudge):
         self.similarities = []
 
     def plot_similarities(self):
-        plt.plot(self.similarities)
-        plt.plot(np.maximum.accumulate(self.similarities))
+        maxes = [np.max(x) for x in self.similarities]
+        means = [np.mean(x) for x in self.similarities]
+        plt.plot(maxes, label="batch max")
+        plt.plot(means, label="batch mean")
+        plt.plot(np.maximum.accumulate(maxes))
         plt.ylabel("Cosine Similarity")
         plt.xlabel("Global Step")
-        plt.savefig("scores.png")
-        plt.show()
+        plt.title(f"Semantle: {self.target}")
+        plt.legend()
+        plt.savefig(f"scores_{self.target}.png")
 
     def get_sim(self, x1, x2):
         texts = [f"What is a {x1}?", f"What is a {x2}?"]
