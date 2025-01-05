@@ -125,12 +125,18 @@ if __name__ == "__main__":
         {
             "prompt": [
                 {
+                    "content": 'You are a helpful chatbot with high attention to detail who is not talkative and responds only with the answer and no \
+additional conversation. All your responses should be in JSON format, i.e. {key: value}, where the key is always \
+"response" and the value can be a string, int, list, or dict, depending on the context.',
+                    "role": "system",
+                },
+                {
                     "content": f'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word English words. Now, guess exactly n={num_guesses} new word(s) that could be the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {{"response": ["word1", "word2",...]}})',
                     "role": "user",
-                }
+                },
             ]
         }
-        for _ in range(500)
+        for _ in range(200)
     ]
     train_dataset = Dataset.from_list(dataset)
     del dataset
