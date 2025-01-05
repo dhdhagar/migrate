@@ -1,3 +1,4 @@
+import argparse
 import json
 from datetime import datetime
 from datasets import load_dataset, Dataset
@@ -77,12 +78,22 @@ class SimPairJudge(BasePairwiseJudge):
         self.similarities.append(np.max(sims))
         return out
 
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target", "-t", type=str, default="computer")
+    args = parser.parse_args()
+    return args
+
 
 if __name__ == "__main__":
+    args = parse_arguments()
+    params = vars(args)
     # model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
     # model_name = "Qwen/Qwen2-0.5B-Instruct"
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
     # model_name = "meta-llama/Llama-3.1-8B-Instruct"
+    #
+    target_word = params["target"]
 
     peft_config = LoraConfig(
         r=8,
@@ -107,7 +118,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     model.generation_config.pad_token_id = tokenizer.pad_token_id
-    judge = SimPairJudge("computer", "princeton-nlp/sup-simcse-roberta-large")
+    judge = SimPairJudge(target_word, "princeton-nlp/sup-simcse-roberta-large")
     # judge = PairRMJudge()
     num_guesses = 5
     dataset = [
@@ -141,9 +152,9 @@ if __name__ == "__main__":
         train_dataset=train_dataset,
         peft_config=peft_config,
         tokenizer=tokenizer,
-        target="computer",
+        target=target_word,
         num_guesses=num_guesses,
-        logfile=f"logs/logfile_{timestamp}.log",
+        logfile=f"logs/logfile_{timestamp}_{target_word}.log",
     )
     # trainer = OnlineDPOTrainerV2(
     #     model=model,
