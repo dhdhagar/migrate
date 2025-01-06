@@ -84,11 +84,16 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
 
     training_args = OnlineDPOConfig(
         output_dir=f"{model_name}-OnlineDPO",
-        logging_steps=10,
+        logging_steps=5,
         fp16=False,
         bf16=True,
         use_cpu=True,
-        learning_rate=1e-5,
+        learning_rate=1e-6,
+        per_device_train_batch_size=1,
+        num_train_epochs=1,
+        temperature=0.9,
+        max_new_tokens=int(32 + (5 * num_guesses)),
+        beta=0.5,
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     trainer = SemantleOnlineDPOTrainer(
