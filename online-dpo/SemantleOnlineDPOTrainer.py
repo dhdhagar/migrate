@@ -133,6 +133,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         )
 
         logResponse({"guess": response}, self.logfile)  # Log response
+        # bool for skipping gradient update if llm response is invalid
+        skip_update = False
         try:
             res = json.loads(response)
             pairs = list(itertools.combinations(res["response"][: self.num_guesses], 2))
@@ -179,6 +181,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
             prompt_mask = prompt_mask[0].repeat((output.shape[0], 1))
             num_examples = len(outputs)
         except:
+            skip_update = True
             pass
         del inputs
 
@@ -419,11 +422,12 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
-        if self.use_apex:
-            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                scaled_loss.backward()
-        else:
-            self.accelerator.backward(loss, **kwargs)
+        if not skip_update:
+            if self.use_apex:
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                self.accelerator.backward(loss, **kwargs)
 
         return loss.detach() / self.args.gradient_accumulation_steps
 
