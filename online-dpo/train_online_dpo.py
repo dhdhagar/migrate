@@ -103,14 +103,5 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         num_guesses=num_guesses,
         logfile=f"logs/logfile_{timestamp}_{target_word}.log",
     )
-    # trainer = OnlineDPOTrainerV2(
-    #     model=model,
-    #     judge=judge,
-    #     args=training_args,
-    #     processing_class=tokenizer,
-    #     train_dataset=train_dataset,
-    #     peft_config=peft_config,
-    #     tokenizer=tokenizer,
-    # )
     trainer.train()
     judge.plot_similarities()
