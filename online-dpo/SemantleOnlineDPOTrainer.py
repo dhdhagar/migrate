@@ -21,6 +21,8 @@ import torch.nn.functional as F
 from transformers import is_apex_available, is_wandb_available
 from transformers.training_args import OptimizerNames
 from transformers.utils import is_peft_available, is_sagemaker_mp_enabled, logging
+import itertools
+import random
 
 if is_peft_available():
     from peft import PeftModel, get_peft_model
@@ -66,6 +68,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.target = target
         self.num_guesses = num_guesses
         self.logfile = logfile
+        self.best_guesses = []
 
     def training_step(
         self,
@@ -130,6 +133,53 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         )
 
         logResponse({"guess": response}, self.logfile)  # Log response
+        try:
+            res = json.loads(response)
+            pairs = list(itertools.combinations(res["response"][: self.num_guesses], 2))
+            random.shuffle(pairs)
+            if len(pairs) < 1:
+                raise ValueError("No guesses")
+            outputs = []
+            max_length = 0
+            for i in range(self.num_guesses):
+                if len(self.best_guesses) < self.num_guesses:
+                    pi_guess = pairs[i][0]
+                    ref_guess = pairs[i][1]
+                else:
+                    pi_guess = res["response"][: self.num_guesses][i]
+                    ref_guess = self.best_guesses[i]["word"]
+                outputs.append(
+                    [
+                        torch.cat(
+                            (
+                                output[0, :context_length],
+                                self.ref_tokenizer(
+                                    json.dumps({"response": [pi_guess]}, indent=4),
+                                    return_tensors="pt",
+                                ).input_ids.view(-1),
+                            ),
+                        ),
+                        torch.cat(
+                            (
+                                output[0, :context_length],
+                                self.ref_tokenizer(
+                                    json.dumps({"response": [ref_guess]}, indent=4),
+                                    return_tensors="pt",
+                                ).input_ids.view(-1),
+                            ),
+                        ),
+                    ]
+                )
+                max_length = max(max_length, len(outputs[i][0]), len(outputs[i][1]))
+            output = torch.tensor(128009).repeat((len(outputs) * 2, max_length))
+            for i in range(len(outputs)):
+                output[i, : len(outputs[i][0])] = outputs[i][0]
+                output[len(outputs) + i, : len(outputs[i][1])] = outputs[i][1]
+            prompt_ids = prompt_ids[0].repeat((output.shape[0], 1))
+            prompt_mask = prompt_mask[0].repeat((output.shape[0], 1))
+            num_examples = len(outputs)
+        except:
+            pass
         del inputs
 
         completion_ids = output[:, context_length:]
