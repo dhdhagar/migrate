@@ -133,6 +133,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         )
 
         logResponse({"guess": response}, self.logfile)  # Log response
+
         # bool for skipping gradient update if llm response is invalid
         skip_update = False
         try:
@@ -256,10 +257,22 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     completion[0]["content"].strip() for completion in completions
                 ]
 
-            ranks_of_first_completion = self.judge.judge(
+            ranks_of_first_completion, best_sims = self.judge.judge(
                 prompts,
                 list(zip(completions[:num_examples], completions[num_examples:])),
             )
+
+            # Update Best guesses
+            try:
+                best_sims = self.best_guesses + best_sims
+                unique_guesses = {}
+                for item in best_sims:
+                    unique_guesses[item["word"]] = item
+                self.best_guesses = sorted(
+                    unique_guesses.values(), key=lambda x: x["sim"]
+                )[-self.num_guesses :]
+            except:
+                pass
 
             # convert ranks to a True/False mask:
             # when rank == 0, it means the first completion is the best

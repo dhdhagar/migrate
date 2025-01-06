@@ -60,6 +60,7 @@ class SimPairJudge(BasePairwiseJudge):
     def judge(self, prompts, completions, shuffle_order=False):
         out = []
         sims = []
+        best_sims = []
         for completion in completions:
             sim0 = 0
             sim1 = 0
@@ -79,8 +80,19 @@ class SimPairJudge(BasePairwiseJudge):
             sims.append(sim1)
             # print(sim0, sim1)
             out.append(sim0 < sim1)
-        self.similarities.append(np.max(sims))
-        return out
+
+            try:
+                best_sims.append(
+                    {
+                        "word": json.loads(completion[0])["response"][0],
+                        "sim": sim0,
+                    }
+                )
+            except:
+                pass
+        self.similarities.append(sims)
+        return out, best_sims
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
