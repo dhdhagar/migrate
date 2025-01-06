@@ -97,8 +97,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         prompt_mask = inputs["prompt_attention_mask"].repeat(2, 1)
         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
             output = unwrapped_model.generate(
-                input_ids=prompt_ids,
-                attention_mask=prompt_mask,
+                input_ids=prompt_ids[0].unsqueeze(0),
+                attention_mask=prompt_mask[0].unsqueeze(0),
                 generation_config=self.generation_config,
             )
         # Replace the second output with the target word (prompt + target)
