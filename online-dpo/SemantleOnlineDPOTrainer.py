@@ -79,6 +79,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         # We do this on-the-fly to enable the use of reward models and policies with different tokenizers / chat templates.
         # batch_size = len(next(iter(inputs.values())))
         batch_size = 1
+        copy_inputs = inputs.copy()
         prompts = inputs["prompt"]
         inputs = [{k: v[i] for k, v in inputs.items()} for i in range(batch_size)]
         inputs = [maybe_apply_chat_template(x, self.processing_class) for x in inputs]
@@ -101,27 +102,29 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 attention_mask=prompt_mask[0].unsqueeze(0),
                 generation_config=self.generation_config,
             )
-        # Replace the second output with the target word (prompt + target)
-        target_ids = self.ref_tokenizer(
-            self.ref_tokenizer.decode(prompt_ids[0], skip_special_tokens=True)
-            + self.target,
-            return_tensors="pt",
-        ).input_ids.to(DEVICE)
-        output[1] = torch.tensor(128009).repeat(output[1].shape)
-        output[1, : target_ids.shape[1]] = target_ids
-        new_guess = {
-            "guess": self.ref_tokenizer.decode(
-                output[0, context_length:], skip_special_tokens=True
+            output = output.repeat(2, 1)
+
+        # Re-init with "n=1" prompt
+        for i in range(len(copy_inputs["prompt"])):
+            # Change user prompt to specify "n=1", system prompt remains the same
+            copy_inputs["prompt"][i][1][
+                "content"
+            ] = 'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word English words. Now, guess exactly n=1 new word(s) that could be the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {"response": ["word1", "word2",...]})'
+        prompts = copy_inputs["prompt"]
+        inputs = [{k: v[i] for k, v in copy_inputs.items()} for i in range(batch_size)]
+        inputs = [maybe_apply_chat_template(x, self.processing_class) for x in inputs]
+        inputs = [
+            self.tokenize_row(
+                x, self.model.config.is_encoder_decoder, self.processing_class
             )
-        }
-        try:
-            with open(self.logfile, "r") as file:
-                data = json.load(file)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = []
-        data.append(new_guess)
-        with open(self.logfile, "w") as file:
-            json.dump(data, file, indent=4)
+            for x in inputs
+        ]
+        inputs = self.data_collator(inputs)
+        inputs = self._prepare_inputs(inputs)
+        num_examples, context_length = inputs["prompt_input_ids"].shape
+        prompt_ids = inputs["prompt_input_ids"].repeat(2, 1)
+        prompt_mask = inputs["prompt_attention_mask"].repeat(2, 1)
+
         response = self.ref_tokenizer.decode(
             output[0, context_length:], skip_special_tokens=True
         )
