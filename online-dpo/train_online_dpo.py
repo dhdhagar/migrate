@@ -77,8 +77,6 @@ class SimPairJudge(BasePairwiseJudge):
             except:
                 sim1 = self.get_sim(completion[1], self.target)
             sims.append(sim0)
-            sims.append(sim1)
-            # print(sim0, sim1)
             out.append(sim0 < sim1)
 
             try:
