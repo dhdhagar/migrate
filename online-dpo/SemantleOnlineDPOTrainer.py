@@ -174,7 +174,10 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     ]
                 )
                 max_length = max(max_length, len(outputs[i][0]), len(outputs[i][1]))
-            output = torch.tensor(128009).repeat((len(outputs) * 2, max_length))
+            # Create prompt + guess token tensors
+            output = torch.tensor(self.processing_class.pad_token_id).repeat(
+                (len(outputs) * 2, max_length)
+            )
             for i in range(len(outputs)):
                 output[i, : len(outputs[i][0])] = outputs[i][0]
                 output[len(outputs) + i, : len(outputs[i][1])] = outputs[i][1]
