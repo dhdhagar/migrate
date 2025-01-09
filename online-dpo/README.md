@@ -1,4 +1,4 @@
-# test-time-search# test-time-search
+# test-time-search
 
 ## Description
 These are experiments for playing Semantle with test-time fine-tuning using [Online DPO](https://huggingface.co/docs/trl/en/online_dpo_trainer). There are three approaches towards test-time fine-tuning denoted as `random`, `greedy`, and `cheat`. The custom judge for Semantle is based on comparing the cosine similarities of the embeddings of generated responses and the target. The embedder used is `princeton-nlp/sup-simcse-roberta-large`.
@@ -42,3 +42,17 @@ peft_config = LoraConfig(
   - lr: 1e-4
   - beta: 0.1
 
+## TODO
+  - Add DPO + NLL loss
+  - Random
+    - [ ] Run with Llama 1b for all 10 targets
+    - [ ] Run with Llama 3b for all 10 targets
+    - [ ] Run with Llama 8b for all 10 targets
+  - Greedy
+    - [ ] Run with Llama 1b for all 10 targets
+    - [ ] Run with Llama 3b for all 10 targets
+    - [ ] Run with Llama 8b for all 10 targets
+  - Cheat
+    - [ ] Run with Llama 1b for all 10 targets
+    - [ ] Run with Llama 3b for all 10 targets
+    - [ ] Run with Llama 8b for all 10 targets
