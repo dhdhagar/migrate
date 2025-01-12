@@ -22,6 +22,12 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", "-t", type=str, default="computer")
+    parser.add_argument(
+        "--model", "-m", type=str, default="meta-llama/Llama-3.2-1B-Instruct"
+    )
+    parser.add_argument("--strategy", "-s", type=str, default="random")
+    parser.add_argument("--batch_size", "-b", type=int, default=5)
+    parser.add_argument("--steps", type=int, default=100)
     args = parser.parse_args()
     return args
 
@@ -32,8 +38,9 @@ if __name__ == "__main__":
     # model_name = "HuggingFaceTB/SmolLM-135M-Instruct"
     # model_name = "Qwen/Qwen2-0.5B-Instruct"
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
+    # model_name = "meta-llama/Llama-3.2-3B-Instruct"
     # model_name = "meta-llama/Llama-3.1-8B-Instruct"
-    #
+    model_name = params["model"]
     target_word = params["target"]
 
     peft_config = LoraConfig(
@@ -59,9 +66,13 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     model.generation_config.pad_token_id = tokenizer.pad_token_id
-    judge = SimPairJudge(target_word, "princeton-nlp/sup-simcse-roberta-large")
-    # judge = PairRMJudge()
-    num_guesses = 5
+    judge = SimPairJudge(
+        target_word,
+        "princeton-nlp/sup-simcse-roberta-large",
+        model_name=model_name,
+        strategy=params["strategy"],
+    )
+    num_guesses = params["batch_size"]
     dataset = [
         {
             "prompt": [
@@ -77,7 +88,7 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
                 },
             ]
         }
-        for _ in range(200)
+        for _ in range(params["steps"])
     ]
     train_dataset = Dataset.from_list(dataset)
     del dataset
@@ -88,12 +99,12 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         fp16=False,
         bf16=True,
         use_cpu=True,
-        learning_rate=1e-6,
+        learning_rate=5e-5,
         per_device_train_batch_size=1,
         num_train_epochs=1,
         temperature=0.9,
-        max_new_tokens=int(32 + (5 * num_guesses)),
-        beta=0.5,
+        max_new_tokens=int(16 + (5 * num_guesses)),
+        beta=[0.1],
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     trainer = SemantleOnlineDPOTrainer(
@@ -107,6 +118,7 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         target=target_word,
         num_guesses=num_guesses,
         logfile=f"logs/logfile_{timestamp}_{target_word}.log",
+        strategy=params["strategy"],
     )
     trainer.train()
     judge.plot_similarities()

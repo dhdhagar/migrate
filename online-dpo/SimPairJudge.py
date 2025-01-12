@@ -10,12 +10,10 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class SimPairJudge(BasePairwiseJudge):
-    def __init__(
-        self,
-        target,
-        embedder,
-    ):
+    def __init__(self, target, embedder, model_name, strategy):
         super(SimPairJudge, self).__init__()
+        self.model_name = model_name
+        self.strategy = strategy
         self.target = target
         self.model_sim = AutoModel.from_pretrained(embedder).to(DEVICE)
         self.tokenizer_sim = AutoTokenizer.from_pretrained(embedder)
@@ -31,7 +29,9 @@ class SimPairJudge(BasePairwiseJudge):
         plt.xlabel("Global Step")
         plt.title(f"Semantle: {self.target}")
         plt.legend()
-        plt.savefig(f"scores_{self.target}.png")
+        plt.savefig(
+            f'{self.model_name.split("/")[1]}_{self.strategy}_{self.target}.png'
+        )
 
     def get_sim(self, x1, x2):
         texts = [f"What is a {x1}?", f"What is a {x2}?"]
@@ -68,7 +68,8 @@ class SimPairJudge(BasePairwiseJudge):
             # sim0 = self.get_sim(completion[0], self.target)
             # sim1 = self.get_sim(completion[1], self.target)
             sims.append(sim0)
-            # sims.append(sim1)
+            if self.strategy == "random":
+                sims.append(sim1)  # Only record both if "random"
             print("================")
             print(sim0)
             print(completion[0])

@@ -62,13 +62,16 @@ def logResponse(response, logfile):
 
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
-    def __init__(self, tokenizer, target, num_guesses, logfile, *args, **kwargs):
+    def __init__(
+        self, tokenizer, target, num_guesses, strategy, logfile, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.ref_tokenizer = tokenizer
         self.target = target
         self.num_guesses = num_guesses
         self.logfile = logfile
         self.best_guesses = []
+        self.strategy = strategy
 
     def training_step(
         self,
@@ -138,19 +141,29 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         skip_update = False
         try:
             res = json.loads(response)
-            pairs = list(itertools.combinations(res["response"][: self.num_guesses], 2))
-            random.shuffle(pairs)
-            if len(pairs) < 1:
-                raise ValueError("No guesses")
+            responses = res["response"][: self.num_guesses]
+            random.shuffle(responses)  # shuffle for greedy
             outputs = []
-            max_length = 0
+            max_length = 0  # Keep track of max token length for padding
             for i in range(self.num_guesses):
-                if len(self.best_guesses) < self.num_guesses:
+                # Randomly choose pairs on the first iteration or if non-greedy
+                if self.strategy == "random" or (
+                    self.strategy == "greedy"
+                    and len(self.best_guesses) < self.num_guesses
+                ):
+                    # Create response pairs to judge
+                    pairs = list(itertools.combinations(responses, 2))
+                    random.shuffle(pairs)
                     pi_guess = pairs[i][0]
                     ref_guess = pairs[i][1]
-                else:
-                    pi_guess = res["response"][: self.num_guesses][i]
+                # If greedy, compare each generated word with previous top words
+                elif self.strategy == "greedy":
+                    pi_guess = responses[i]
                     ref_guess = self.best_guesses[i]["word"]
+                # If oracle, compare each generated word with the target word
+                elif self.strategy == "oracle":
+                    pi_guess = responses[i]
+                    ref_guess = self.target
                 outputs.append(
                     [
                         torch.cat(
