@@ -69,8 +69,6 @@ if __name__ == "__main__":
     judge = SimPairJudge(
         target_word,
         "princeton-nlp/sup-simcse-roberta-large",
-        model_name=model_name,
-        strategy=params["strategy"],
     )
     num_guesses = params["batch_size"]
     dataset = [
@@ -121,4 +119,3 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         strategy=params["strategy"],
     )
     trainer.train()
-    judge.plot_similarities()

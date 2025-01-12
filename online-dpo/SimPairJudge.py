@@ -10,28 +10,11 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class SimPairJudge(BasePairwiseJudge):
-    def __init__(self, target, embedder, model_name, strategy):
+    def __init__(self, target, embedder):
         super(SimPairJudge, self).__init__()
-        self.model_name = model_name
-        self.strategy = strategy
         self.target = target
         self.model_sim = AutoModel.from_pretrained(embedder).to(DEVICE)
         self.tokenizer_sim = AutoTokenizer.from_pretrained(embedder)
-        self.similarities = []
-
-    def plot_similarities(self):
-        maxes = [np.max(x) for x in self.similarities]
-        means = [np.mean(x) for x in self.similarities]
-        plt.plot(maxes, label="batch max")
-        plt.plot(means, label="batch mean")
-        plt.plot(np.maximum.accumulate(maxes))
-        plt.ylabel("Cosine Similarity")
-        plt.xlabel("Global Step")
-        plt.title(f"Semantle: {self.target}")
-        plt.legend()
-        plt.savefig(
-            f'{self.model_name.split("/")[1]}_{self.strategy}_{self.target}.png'
-        )
 
     def get_sim(self, x1, x2):
         texts = [f"What is a {x1}?", f"What is a {x2}?"]
@@ -65,11 +48,6 @@ class SimPairJudge(BasePairwiseJudge):
             except:
                 sim1 = self.get_sim(completion[1], self.target)
 
-            # sim0 = self.get_sim(completion[0], self.target)
-            # sim1 = self.get_sim(completion[1], self.target)
-            sims.append(sim0)
-            if self.strategy == "random":
-                sims.append(sim1)  # Only record both if "random"
             print("================")
             print(sim0)
             print(completion[0])
@@ -82,12 +60,8 @@ class SimPairJudge(BasePairwiseJudge):
 
             try:
                 best_sims.append(
-                    {
-                        "word": json.loads(completion[0])["response"][0],
-                        "sim": sim0,
-                    }
+                    {"word": json.loads(completion[0])["response"][0], "sim": sim0}
                 )
             except:
                 pass
-        self.similarities.append(sims)
         return out, best_sims
