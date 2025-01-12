@@ -134,17 +134,17 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         response = self.ref_tokenizer.decode(
             output[0, context_length:], skip_special_tokens=True
         )
+        output_prompt = output[0, :context_length]
 
         logResponse({"guess": response}, self.logfile)  # Log response
 
         # bool for skipping gradient update if llm response is invalid
         skip_update = False
+        total_loss = torch.tensor(0.0, dtype=torch.float32)
         try:
             res = json.loads(response)
             responses = res["response"][: self.num_guesses]
             random.shuffle(responses)  # shuffle for greedy
-            outputs = []
-            max_length = 0  # Keep track of max token length for padding
             for i in range(self.num_guesses):
                 # Randomly choose pairs on the first iteration or if non-greedy
                 if self.strategy == "random" or (
@@ -154,37 +154,36 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     # Create response pairs to judge
                     pairs = list(itertools.combinations(responses, 2))
                     random.shuffle(pairs)
-                    pi_guess = pairs[i][0]
-                    ref_guess = pairs[i][1]
+                    pi_guess, ref_guess = pairs[i]
                 # If greedy, compare each generated word with previous top words
                 elif self.strategy == "greedy":
-                    pi_guess = responses[i]
-                    ref_guess = self.best_guesses[i]["word"]
+                    pi_guess, ref_guess = responses[i], self.best_guesses[i]["word"]
                 # If oracle, compare each generated word with the target word
                 elif self.strategy == "oracle":
-                    pi_guess = responses[i]
-                    ref_guess = self.target
-                outputs.append(
-                    [
-                        torch.cat(
-                            (
-                                output[0, :context_length],
-                                self.ref_tokenizer(
-                                    json.dumps({"response": [pi_guess]}, indent=4),
-                                    return_tensors="pt",
-                                ).input_ids.view(-1),
-                            ),
-                        ),
-                        torch.cat(
-                            (
-                                output[0, :context_length],
-                                self.ref_tokenizer(
-                                    json.dumps({"response": [ref_guess]}, indent=4),
-                                    return_tensors="pt",
-                                ).input_ids.view(-1),
-                            ),
-                        ),
-                    ]
+                    pi_guess, ref_guess = responses[i], self.target
+
+                pi_tensor = self.ref_tokenizer(
+                    json.dumps({"response": [pi_guess]}, indent=4),
+                    return_tensors="pt",
+                ).input_ids.view(-1)
+                ref_tensor = self.ref_tokenizer(
+                    json.dumps({"response": [ref_guess]}, indent=4),
+                    return_tensors="pt",
+                ).input_ids.view(-1)
+
+                outputs = [
+                    torch.cat((output_prompt, pi_tensor)),
+                    torch.cat((output_prompt, ref_tensor)),
+                ]
+                max_length = max(len(outputs[0]), len(outputs[1]))
+
+                # Create prompt + guess token tensors
+                output = torch.full((2, max_length), self.processing_class.pad_token_id)
+                output[0, : len(outputs[0])] = outputs[0]
+                output[1, : len(outputs[1])] = outputs[1]
+                prompt_ids = prompt_ids[0].repeat((output.shape[0], 1))
+                prompt_mask = prompt_mask[0].repeat((output.shape[0], 1))
+                num_examples = 1
                 )
                 max_length = max(max_length, len(outputs[i][0]), len(outputs[i][1]))
             # Create prompt + guess token tensors
