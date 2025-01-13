@@ -29,6 +29,7 @@ def parse_arguments():
     parser.add_argument("--strategy", "-s", type=str, default="random")
     parser.add_argument("--batch_size", "-b", type=int, default=5)
     parser.add_argument("--steps", type=int, default=100)
+    parser.add_argument("--warmstart", type=int, default=1)
     args = parser.parse_args()
     return args
 
@@ -121,6 +122,7 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         num_guesses=num_guesses,
         logfile=logfile,
         strategy=params["strategy"],
+        warmstart=params["warmstart"],
     )
     trainer.train()
 

@@ -65,7 +65,15 @@ def logResponse(response, logfile):
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(
-        self, tokenizer, target, num_guesses, strategy, logfile, *args, **kwargs
+        self,
+        tokenizer,
+        target,
+        num_guesses,
+        strategy,
+        logfile,
+        warmstart,
+        *args,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.ref_tokenizer = tokenizer
@@ -75,6 +83,12 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.best_guesses = []
         self.strategy = strategy
 
+        # Make 10 warmstart pairs
+        with open(f"warmstart/{target}.json", "r") as file:
+            words = json.load(file)[target][str(41 + warmstart)]
+            words = [x[0] for x in words]
+            random.shuffle(words)
+            self.warmstart = list(zip(words[::2], words[1::2]))
     def training_step(
         self,
         model: nn.Module,
