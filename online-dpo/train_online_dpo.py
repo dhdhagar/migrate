@@ -102,7 +102,7 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         per_device_train_batch_size=1,
         num_train_epochs=1,
         temperature=0.9,
-        max_new_tokens=int(16 + (5 * num_guesses)),
+        max_new_tokens=int(32 + (5 * num_guesses)),
         beta=[0.1],
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
