@@ -1,3 +1,4 @@
+import os
 import argparse
 import json
 from datetime import datetime
@@ -105,6 +106,9 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         beta=[0.1],
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logdir = f'logs/{target_word}/{params["strategy"]}'
+    os.makedirs(logdir, exist_ok=True)
+    logfile = f'{logdir}/{timestamp}_{params["warmstart"]}.log'
     trainer = SemantleOnlineDPOTrainer(
         model=model,
         judge=judge,
@@ -115,7 +119,7 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         tokenizer=tokenizer,
         target=target_word,
         num_guesses=num_guesses,
-        logfile=f"logs/logfile_{timestamp}_{target_word}.log",
+        logfile=logfile,
         strategy=params["strategy"],
     )
     trainer.train()
