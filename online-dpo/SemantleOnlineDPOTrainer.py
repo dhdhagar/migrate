@@ -282,6 +282,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                         self.best_guesses = sorted(
                             unique_guesses.values(), key=lambda x: x["sim"]
                         )[-self.num_guesses :]
+                        best = self.best_guesses[-5:]
+                        self.best_guesses = best * (self.num_guesses // 5)
                     except:
                         pass
 
