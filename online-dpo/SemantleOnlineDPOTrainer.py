@@ -18,11 +18,13 @@ from trl.models.utils import unwrap_model_for_generation
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import transformers
 from transformers import is_apex_available, is_wandb_available
 from transformers.training_args import OptimizerNames
 from transformers.utils import is_peft_available, is_sagemaker_mp_enabled, logging
 import itertools
 import random
+from packaging import version
 
 if is_peft_available():
     from peft import PeftModel, get_peft_model
@@ -472,3 +474,68 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         # return loss.detach() / self.args.gradient_accumulation_steps
         total_loss = total_loss / self.num_guesses
         return total_loss.detach() / self.args.gradient_accumulation_steps
+
+    def _maybe_log_save_evaluate(
+        self,
+        tr_loss,
+        grad_norm,
+        model,
+        trial,
+        epoch,
+        ignore_keys_for_eval,
+        start_time=None,
+    ):
+        if (
+            self.control.should_log
+            and self.state.global_step > self._globalstep_last_logged
+        ):
+            logs: dict[str, float] = {}
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+
+            # reset tr_loss to zero
+            tr_loss -= tr_loss
+
+            logs["loss"] = round(
+                tr_loss_scalar
+                / (self.state.global_step - self._globalstep_last_logged),
+                4,
+            )
+            if grad_norm is not None:
+                logs["grad_norm"] = (
+                    grad_norm.detach().item()
+                    if isinstance(grad_norm, torch.Tensor)
+                    else grad_norm
+                )
+            logs["learning_rate"] = self._get_learning_rate()
+
+            # Add our metrics
+            for key, val in self.stats.items():
+                logs[key] = sum(val) / max(len(val), 1)
+            self.stats = {key: [] for key in self.stats}  # reset stats
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+
+            if version.parse(transformers.__version__) >= version.parse("4.47.0.dev0"):
+                self.log(logs, start_time)
+            else:  # transformers<=4.46
+                self.log(logs)
+
+        metrics = None
+        if self.control.should_evaluate:
+            metrics = self._evaluate(trial, ignore_keys_for_eval)
+            is_new_best_metric = self._determine_best_metric(
+                metrics=metrics, trial=trial
+            )
+
+            if self.args.save_strategy == "best":
+                self.control.should_save = is_new_best_metric
+
+        if self.control.should_save:
+            self._save_checkpoint(model, trial)
+            self.control = self.callback_handler.on_save(
+                self.args, self.state, self.control
+            )
