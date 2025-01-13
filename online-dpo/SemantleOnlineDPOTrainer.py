@@ -472,7 +472,6 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         del inputs
 
         # return loss.detach() / self.args.gradient_accumulation_steps
-        total_loss = total_loss / self.num_guesses
         return total_loss.detach() / self.args.gradient_accumulation_steps
 
     def _maybe_log_save_evaluate(
