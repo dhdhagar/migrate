@@ -449,6 +449,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 ):
                     empty_cache()
 
+                loss = loss / num_prefs
                 kwargs = {}
 
                 # For LOMO optimizers you need to explicitly use the learnign rate
