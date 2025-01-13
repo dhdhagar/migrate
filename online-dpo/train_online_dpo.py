@@ -123,3 +123,34 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         strategy=params["strategy"],
     )
     trainer.train()
+
+    # Sample from final trained model and log
+    sample_prompt = [
+        {
+            "content": 'You are a helpful chatbot with high attention to detail who is not talkative and responds only with the answer and no \
+additional conversation. All your responses should be in JSON format, i.e. {key: value}, where the key is always \
+"response" and the value can be a string, int, list, or dict, depending on the context.',
+            "role": "system",
+        },
+        {
+            "content": f'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word English words. Now, guess exactly n=20 new word(s) that could be the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {{"response": ["word1", "word2",...]}})',
+            "role": "user",
+        },
+    ]
+    inputs = tokenizer.apply_chat_template(
+        sample_prompt, tokenize=True, return_tensors="pt"
+    ).to(DEVICE)
+    output = model.generate(
+        inputs,
+        num_return_sequences=1,
+        max_new_tokens=512,
+        temperature=0.9,
+    )[0][len(inputs[0]) :]
+    with open(logfile, "r") as file:
+        data = json.load(file)
+    data.append({"Final Sample": tokenizer.decode(output, skip_special_tokens=True)})
+    with open(logfile, "w") as file:
+        json.dump(data, file, indent=4)
+
+    del inputs
+    del output
