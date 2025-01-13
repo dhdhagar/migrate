@@ -158,18 +158,28 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         skip_update = False
         total_loss = torch.tensor(0.0, dtype=torch.float32)
         try:
-            res = json.loads(response)
-            responses = res["response"][: self.num_guesses]
-            random.shuffle(responses)  # shuffle for greedy
-            for i in range(self.num_guesses):
+            try:
+                res = json.loads(response)
+                responses = res["response"][: self.num_guesses]
+                random.shuffle(responses)  # shuffle for greedy
+                pairs = list(itertools.combinations(responses, 2))
+                random.shuffle(pairs)
+                num_prefs = len(pairs)
+            except:
+                responses = None
+                num_prefs = 0
+
+            num_prefs = self.num_guesses
+            for i in range(num_prefs):
                 # Randomly choose pairs on the first iteration or if non-greedy
                 if self.strategy == "random" or (
-                    self.strategy == "greedy"
-                    and len(self.best_guesses) < self.num_guesses
+                    self.strategy == "greedy" and len(self.best_guesses) < num_prefs
                 ):
                     # Create response pairs to judge
-                    pairs = list(itertools.combinations(responses, 2))
-                    random.shuffle(pairs)
+                    if self.warmstart:
+                        pairs = self.warmstart[:num_prefs]
+                    else:
+                        self.warmstart = None
                     pi_guess, ref_guess = pairs[i]
                 # If greedy, compare each generated word with previous top words
                 elif self.strategy == "greedy":
