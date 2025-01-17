@@ -18,13 +18,9 @@ class SimPairJudge(BasePairwiseJudge):
 
     def get_sim(self, x1, x2):
         texts = [f"What is a {x1}?", f"What is a {x2}?"]
-        inputs = self.tokenizer_sim(
-            texts, padding=True, truncation=True, return_tensors="pt"
-        ).to(DEVICE)
+        inputs = self.tokenizer_sim(texts, padding=True, truncation=True, return_tensors="pt").to(DEVICE)
         with torch.no_grad():
-            embeddings = self.model_sim(
-                **inputs, output_hidden_states=True, return_dict=True
-            ).pooler_output
+            embeddings = self.model_sim(**inputs, output_hidden_states=True, return_dict=True).pooler_output
         cosine_sim = 1 - cosine(embeddings[0].cpu(), embeddings[1].cpu())
         return cosine_sim
 
@@ -59,9 +55,11 @@ class SimPairJudge(BasePairwiseJudge):
             out.append(sim0 < sim1)
 
             try:
-                best_sims.append(
-                    {"word": json.loads(completion[0])["response"][0], "sim": sim0}
-                )
+                best_sims.append({"word": json.loads(completion[0])["response"][0], "sim": sim0})
+            except:
+                pass
+            try:
+                best_sims.append({"word": json.loads(completion[1])["response"][0], "sim": sim1})
             except:
                 pass
         return out, best_sims

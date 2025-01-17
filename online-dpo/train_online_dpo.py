@@ -23,13 +23,13 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", "-t", type=str, default="computer")
-    parser.add_argument(
-        "--model", "-m", type=str, default="meta-llama/Llama-3.2-1B-Instruct"
-    )
+    parser.add_argument("--model", "-m", type=str, default="meta-llama/Llama-3.2-1B-Instruct")
     parser.add_argument("--strategy", "-s", type=str, default="random")
-    parser.add_argument("--batch_size", "-b", type=int, default=5)
+    parser.add_argument("--batch_size", "-b", type=int, default=10)
+    parser.add_argument("--n_reps", "-n", type=int, default=1)
     parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--warmstart", type=int, default=1)
+    parser.add_argument("--warmstart", type=int, default=0)
+    parser.add_argument("--g", type=int, default=5)
     args = parser.parse_args()
     return args
 
@@ -60,18 +60,12 @@ if __name__ == "__main__":
         # bnb_4bit_compute_dtype=torch.bfloat16,
     )
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        device_map="auto",
-        quantization_config=quant_config,
-        torch_dtype=torch.bfloat16,
+        model_name, device_map="auto", quantization_config=quant_config, torch_dtype=torch.bfloat16
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     model.generation_config.pad_token_id = tokenizer.pad_token_id
-    judge = SimPairJudge(
-        target_word,
-        "princeton-nlp/sup-simcse-roberta-large",
-    )
+    judge = SimPairJudge(target_word, "princeton-nlp/sup-simcse-roberta-large")
     num_guesses = params["batch_size"]
     dataset = [
         {
@@ -139,15 +133,8 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
             "role": "user",
         },
     ]
-    inputs = tokenizer.apply_chat_template(
-        sample_prompt, tokenize=True, return_tensors="pt"
-    ).to(DEVICE)
-    output = model.generate(
-        inputs,
-        num_return_sequences=1,
-        max_new_tokens=512,
-        temperature=0.9,
-    )[0][len(inputs[0]) :]
+    inputs = tokenizer.apply_chat_template(sample_prompt, tokenize=True, return_tensors="pt").to(DEVICE)
+    output = model.generate(inputs, num_return_sequences=1, max_new_tokens=512, temperature=0.9)[0][len(inputs[0]) :]
     with open(logfile, "r") as file:
         data = json.load(file)
     data.append({"Final Sample": tokenizer.decode(output, skip_special_tokens=True)})

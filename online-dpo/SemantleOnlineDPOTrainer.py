@@ -105,12 +105,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         prompts = inputs["prompt"]
         inputs = [{k: v[i] for k, v in inputs.items()} for i in range(batch_size)]
         inputs = [maybe_apply_chat_template(x, self.processing_class) for x in inputs]
-        inputs = [
-            self.tokenize_row(
-                x, self.model.config.is_encoder_decoder, self.processing_class
-            )
-            for x in inputs
-        ]
+        inputs = [self.tokenize_row(x, self.model.config.is_encoder_decoder, self.processing_class) for x in inputs]
         inputs = self.data_collator(inputs)
 
         # Sample 2 completions per prompt of size `max_new_tokens` from the model
@@ -135,12 +130,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         prompts = copy_inputs["prompt"]
         inputs = [{k: v[i] for k, v in copy_inputs.items()} for i in range(batch_size)]
         inputs = [maybe_apply_chat_template(x, self.processing_class) for x in inputs]
-        inputs = [
-            self.tokenize_row(
-                x, self.model.config.is_encoder_decoder, self.processing_class
-            )
-            for x in inputs
-        ]
+        inputs = [self.tokenize_row(x, self.model.config.is_encoder_decoder, self.processing_class) for x in inputs]
         inputs = self.data_collator(inputs)
         inputs = self._prepare_inputs(inputs)
         num_examples, context_length = inputs["prompt_input_ids"].shape
@@ -172,9 +162,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
             num_prefs = self.num_guesses
             for i in range(num_prefs):
                 # Randomly choose pairs on the first iteration or if non-greedy
-                if self.strategy == "random" or (
-                    self.strategy == "greedy" and len(self.best_guesses) < num_prefs
-                ):
+                if self.strategy == "random" or (self.strategy == "greedy" and len(self.best_guesses) < num_prefs):
                     # Create response pairs to judge
                     if self.warmstart:
                         pairs = self.warmstart[:num_prefs]
@@ -216,34 +204,24 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     self.processing_class.eos_token_id,
                     self.processing_class.pad_token_id,
                 )
-                contain_eos_token = torch.any(
-                    completion_ids == self.processing_class.eos_token_id, dim=-1
-                )
+                contain_eos_token = torch.any(completion_ids == self.processing_class.eos_token_id, dim=-1)
                 prompt_completion_ids = torch.cat((prompt_ids, completion_ids), dim=1)
-                prompt_completion_mask = torch.cat(
-                    (prompt_mask, completion_mask), dim=1
-                )
+                prompt_completion_mask = torch.cat((prompt_mask, completion_mask), dim=1)
 
                 # Get the logprobs of the completions from the model
-                output = model(
-                    prompt_completion_ids, attention_mask=prompt_completion_mask
-                )
+                output = model(prompt_completion_ids, attention_mask=prompt_completion_mask)
                 # There is 1 offset, because the model predict the next token
                 logits = output.logits[:, context_length - 1 : -1]
                 # Turn logits into logprobs
                 all_logprobs = F.log_softmax(logits, dim=-1)
                 # Take the completion tokens logprob
-                logprobs = torch.take_along_dim(
-                    all_logprobs, completion_ids.unsqueeze(-1), dim=2
-                ).squeeze(-1)
+                logprobs = torch.take_along_dim(all_logprobs, completion_ids.unsqueeze(-1), dim=2).squeeze(-1)
                 del output, logits, all_logprobs  # free memory
 
                 # Same for the reference model
                 with torch.no_grad():
                     if self.ref_model is not None:
-                        ref_output = self.ref_model(
-                            prompt_completion_ids, attention_mask=prompt_completion_mask
-                        )
+                        ref_output = self.ref_model(prompt_completion_ids, attention_mask=prompt_completion_mask)
                     else:  # peft case: we just need to disable the adapter
                         with self.model.disable_adapter():
                             ref_output = self.model(
@@ -252,22 +230,17 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                             )
                     ref_logits = ref_output.logits[:, context_length - 1 : -1]
                     ref_all_logprobs = F.log_softmax(ref_logits, dim=-1)
-                    ref_logprobs = torch.take_along_dim(
-                        ref_all_logprobs, completion_ids.unsqueeze(-1), dim=2
-                    ).squeeze(-1)
+                    ref_logprobs = torch.take_along_dim(ref_all_logprobs, completion_ids.unsqueeze(-1), dim=2).squeeze(
+                        -1
+                    )
                     del ref_output, ref_logits, ref_all_logprobs  # free memory
 
                 # Decode the completions, and format them if the input is conversational
                 device = prompt_completion_ids.device
                 completions_ids = prompt_completion_ids[:, context_length:]
-                completions = self.processing_class.batch_decode(
-                    completions_ids, skip_special_tokens=True
-                )
+                completions = self.processing_class.batch_decode(completions_ids, skip_special_tokens=True)
                 if is_conversational({"prompt": prompts[0]}):
-                    completions = [
-                        [{"role": "assistant", "content": completion}]
-                        for completion in completions
-                    ]
+                    completions = [[{"role": "assistant", "content": completion}] for completion in completions]
 
                 # Get the reward from the reward model or judge
                 if self.judge is not None:
@@ -278,23 +251,16 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     if is_conversational({"prompt": prompts[0]}):
                         environment = jinja2.Environment()
                         template = environment.from_string(SIMPLE_CHAT_TEMPLATE)
-                        prompts = [
-                            template.render(messages=prompt) for prompt in prompts
-                        ]
+                        prompts = [template.render(messages=prompt) for prompt in prompts]
                         # completions = [
                         #     template.render(messages=completion) for completion in completions
                         # ]
                         # print("COMPLETIONS", completions)
-                        completions = [
-                            completion[0]["content"].strip()
-                            for completion in completions
-                        ]
+                        completions = [completion[0]["content"].strip() for completion in completions]
 
                     ranks_of_first_completion, best_sims = self.judge.judge(
                         prompts,
-                        list(
-                            zip(completions[:num_examples], completions[num_examples:])
-                        ),
+                        list(zip(completions[:num_examples], completions[num_examples:])),
                     )
 
                     # Update Best guesses
@@ -303,9 +269,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                         unique_guesses = {}
                         for item in best_sims:
                             unique_guesses[item["word"]] = item
-                        self.best_guesses = sorted(
-                            unique_guesses.values(), key=lambda x: x["sim"]
-                        )[-self.num_guesses :]
+                        self.best_guesses = sorted(unique_guesses.values(), key=lambda x: x["sim"])[-self.num_guesses :]
                         best = self.best_guesses[-5:]
                         self.best_guesses = best * (self.num_guesses // 5)
                     except:
@@ -314,9 +278,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     # convert ranks to a True/False mask:
                     # when rank == 0, it means the first completion is the best
                     # when rank == 1, it means the second completion is the best
-                    mask = torch.tensor(
-                        [rank == 0 for rank in ranks_of_first_completion], device=device
-                    )
+                    mask = torch.tensor([rank == 0 for rank in ranks_of_first_completion], device=device)
                 else:
                     # The reward model may not have the same chat template or tokenizer as the model, so we need to use the
                     # raw data (string), apply the chat template (if needed), and tokenize it with the reward processing class.
@@ -324,14 +286,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                         2 * prompts
                     )  # repeat the prompt: [prompt0, prompt1] -> [prompt0, prompt1, prompt0, prompt1]
                     if is_conversational({"prompt": prompts[0]}):
-                        examples = [
-                            {"prompt": p, "completion": c}
-                            for p, c in zip(prompts, completions)
-                        ]
-                        examples = [
-                            apply_chat_template(example, self.reward_processing_class)
-                            for example in examples
-                        ]
+                        examples = [{"prompt": p, "completion": c} for p, c in zip(prompts, completions)]
+                        examples = [apply_chat_template(example, self.reward_processing_class) for example in examples]
                         prompts = [example["prompt"] for example in examples]
                         completions = [example["completion"] for example in examples]
 
@@ -350,9 +306,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     )["input_ids"].to(device)
 
                     # Concatenate the prompts and completions and get the reward
-                    prompt_completion_ids = torch.cat(
-                        (prompts_ids, completions_ids), dim=1
-                    )
+                    prompt_completion_ids = torch.cat((prompts_ids, completions_ids), dim=1)
                     with torch.inference_mode():
                         _, scores, _ = get_reward(
                             self.reward_model,
@@ -377,9 +331,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 rejected_indices = num_examples_range + (mask * num_examples)
 
                 # Build tensor so that the first half is the chosen examples and the second half the rejected examples
-                cr_indices = torch.cat(
-                    (chosen_indices, rejected_indices), dim=0
-                )  # cr = chosen and rejected
+                cr_indices = torch.cat((chosen_indices, rejected_indices), dim=0)  # cr = chosen and rejected
                 cr_logprobs = logprobs[cr_indices]
                 cr_ref_logprobs = ref_logprobs[cr_indices]
 
@@ -391,12 +343,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 cr_ref_logprobs_sum = (cr_ref_logprobs * ~cr_padding_mask).sum(1)
 
                 # Split the chosen and rejected examples
-                chosen_logprobs_sum, rejected_logprobs_sum = torch.split(
-                    cr_logprobs_sum, num_examples
-                )
-                chosen_ref_logprobs_sum, rejected_ref_logprobs_sum = torch.split(
-                    cr_ref_logprobs_sum, num_examples
-                )
+                chosen_logprobs_sum, rejected_logprobs_sum = torch.split(cr_logprobs_sum, num_examples)
+                chosen_ref_logprobs_sum, rejected_ref_logprobs_sum = torch.split(cr_ref_logprobs_sum, num_examples)
                 pi_logratios = chosen_logprobs_sum - rejected_logprobs_sum
                 ref_logratios = chosen_ref_logprobs_sum - rejected_ref_logprobs_sum
 
@@ -417,24 +365,14 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     self.stats["objective/scores_margin"].append(
                         self.accelerator.gather(scores_margin.mean()).mean().item()
                     )
-                    self.stats["objective/scores"].append(
-                        self.accelerator.gather(scores.mean()).mean().item()
-                    )
-                self.stats["val/contain_eos_token"].append(
-                    contain_eos_token.float().mean().item()
-                )
-                self.stats["logps/chosen"].append(
-                    self.accelerator.gather(chosen_logprobs_sum).mean().item()
-                )
-                self.stats["logps/rejected"].append(
-                    self.accelerator.gather(rejected_logprobs_sum).mean().item()
-                )
+                    self.stats["objective/scores"].append(self.accelerator.gather(scores.mean()).mean().item())
+                self.stats["val/contain_eos_token"].append(contain_eos_token.float().mean().item())
+                self.stats["logps/chosen"].append(self.accelerator.gather(chosen_logprobs_sum).mean().item())
+                self.stats["logps/rejected"].append(self.accelerator.gather(rejected_logprobs_sum).mean().item())
 
                 kl = logprobs - ref_logprobs
                 mean_kl = kl.sum(1).mean()
-                self.stats["objective/kl"].append(
-                    self.accelerator.gather(mean_kl).mean().item()
-                )
+                self.stats["objective/kl"].append(self.accelerator.gather(mean_kl).mean().item())
                 non_score_reward = (-self.beta * kl).sum(1)
                 mean_non_score_reward = non_score_reward.mean()
                 self.stats["objective/non_score_reward"].append(
@@ -442,27 +380,15 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 )
                 if self.reward_model is not None:
                     rlhf_reward = scores + non_score_reward
-                    self.stats["objective/rlhf_reward"].append(
-                        self.accelerator.gather(rlhf_reward).mean().item()
-                    )
+                    self.stats["objective/rlhf_reward"].append(self.accelerator.gather(rlhf_reward).mean().item())
                 mean_entropy = -logprobs.sum(1).mean()
-                self.stats["objective/entropy"].append(
-                    self.accelerator.gather(mean_entropy).mean().item()
-                )
-                chosen_rewards = self.beta * (
-                    chosen_logprobs_sum - chosen_ref_logprobs_sum
-                )
+                self.stats["objective/entropy"].append(self.accelerator.gather(mean_entropy).mean().item())
+                chosen_rewards = self.beta * (chosen_logprobs_sum - chosen_ref_logprobs_sum)
                 gathered_chosen_rewards = self.accelerator.gather(chosen_rewards)
-                self.stats["rewards/chosen"].append(
-                    gathered_chosen_rewards.mean().item()
-                )
-                rejected_rewards = self.beta * (
-                    rejected_logprobs_sum - rejected_ref_logprobs_sum
-                )
+                self.stats["rewards/chosen"].append(gathered_chosen_rewards.mean().item())
+                rejected_rewards = self.beta * (rejected_logprobs_sum - rejected_ref_logprobs_sum)
                 gathered_rejected_rewards = self.accelerator.gather(rejected_rewards)
-                self.stats["rewards/rejected"].append(
-                    gathered_rejected_rewards.mean().item()
-                )
+                self.stats["rewards/rejected"].append(gathered_rejected_rewards.mean().item())
                 margin = gathered_chosen_rewards - gathered_rejected_rewards
                 self.stats["rewards/margins"].append(margin.mean().item())
                 accuracy = margin > 0
@@ -483,9 +409,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     kwargs["learning_rate"] = self._get_learning_rate()
 
                 if self.args.n_gpu > 1:
-                    loss = (
-                        loss.mean()
-                    )  # mean() to average on multi-gpu parallel training
+                    loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
                 if self.use_apex:
                     with amp.scale_loss(loss, self.optimizer) as scaled_loss:
@@ -511,10 +435,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         ignore_keys_for_eval,
         start_time=None,
     ):
-        if (
-            self.control.should_log
-            and self.state.global_step > self._globalstep_last_logged
-        ):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             logs: dict[str, float] = {}
 
             # all_gather + mean() to get average loss over all processes
@@ -523,17 +444,9 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
-            logs["loss"] = round(
-                tr_loss_scalar
-                / (self.state.global_step - self._globalstep_last_logged),
-                4,
-            )
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged))
             if grad_norm is not None:
-                logs["grad_norm"] = (
-                    grad_norm.detach().item()
-                    if isinstance(grad_norm, torch.Tensor)
-                    else grad_norm
-                )
+                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
             logs["learning_rate"] = self._get_learning_rate()
 
             # Add our metrics
@@ -553,15 +466,11 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         metrics = None
         if self.control.should_evaluate:
             metrics = self._evaluate(trial, ignore_keys_for_eval)
-            is_new_best_metric = self._determine_best_metric(
-                metrics=metrics, trial=trial
-            )
+            is_new_best_metric = self._determine_best_metric(metrics=metrics, trial=trial)
 
             if self.args.save_strategy == "best":
                 self.control.should_save = is_new_best_metric
 
         if self.control.should_save:
             self._save_checkpoint(model, trial)
-            self.control = self.callback_handler.on_save(
-                self.args, self.state, self.control
-            )
+            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
