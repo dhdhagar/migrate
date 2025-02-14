@@ -1,3 +1,7 @@
+import json
+import random
+import itertools
+import numpy as np
 import torch
 from torch import nn
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -11,7 +15,7 @@ from trl.models.utils import unwrap_model_for_generation
 from trl.trainer.utils import pad
 from accelerate.utils.other import is_compiled_module
 from accelerate.utils import broadcast_object_list, gather, gather_object
-from transformers import is_wandb_available, PreTrainedModel
+from transformers import is_wandb_available, PreTrainedModel, AutoModel, AutoTokenizer
 from transformers.utils import (
     is_apex_available,
     is_sagemaker_mp_enabled,
@@ -51,8 +55,20 @@ def logResponse(response, logfile):
 
 
 class SemantleGRPOTrainer(GRPOTrainer):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, target, num_guesses, strategy, n_reps, logfile, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.iteration = 0
+        self.logfile = logfile
+        self.target = target
+        embedder = "princeton-nlp/sup-simcse-roberta-large"
+        DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model_sim = AutoModel.from_pretrained(embedder).to(DEVICE)
+        self.tokenizer_sim = AutoTokenizer.from_pretrained(embedder)
+        self.past_guesses = {}
+        self.strategy = strategy
+        self.num_guesses = num_guesses
+        self.n_reps = n_reps
+
     def get_sim(self, word1, word2):
         texts = [f"What is a {word1}?", f"What is a {word2}?"]
         inputs = self.tokenizer_sim(texts, padding=True, truncation=True, return_tensors="pt").to(self.args.device)
@@ -60,6 +76,13 @@ class SemantleGRPOTrainer(GRPOTrainer):
             embeddings = self.model_sim(**inputs, output_hidden_states=True, return_dict=True).pooler_output
 
         return cosine_similarity(embeddings[0], embeddings[1], dim=0).item()
+
+    def update_past_guesses(self, responses, bb_scores):
+        guesses = list(itertools.chain.from_iterable(responses))
+        scores = list(itertools.chain.from_iterable(bb_scores))
+        for word, score in zip(guesses, scores):
+            self.past_guesses[word] = score
+
     def training_step(
         self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
     ) -> torch.Tensor:
@@ -168,67 +191,102 @@ class SemantleGRPOTrainer(GRPOTrainer):
         else:
             # Regular generation path
             with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
-                prompt_completion_ids = unwrapped_model.generate(
-                    **prompt_inputs, generation_config=self.generation_config
-                )
+                retries = 0
+                while not valid_completion and retries < 5:
+                    try:
+                        completion_ids = unwrapped_model.generate(
+                            input_ids=prompt_inputs["input_ids"].repeat(self.n_reps, 1),
+                            attention_mask=prompt_inputs["attention_mask"].repeat(self.n_reps, 1),
+                            generation_config=self.generation_config,
+                        )
+                        prompt_length = prompt_inputs["input_ids"].size(1)
+                        responses = []
+                        bb_scores = []
+                        for completion in completion_ids:
+                            res = self.processing_class.decode(completion[prompt_length:], skip_special_tokens=True)
+                            guesses = json.loads(res)["response"][: self.num_guesses]
+                            responses.append(guesses)
+                            bb_scores.append([self.get_sim(guess, self.target) for guess in guesses])
 
-        prompt_length = prompt_inputs["input_ids"].size(1)
-        completion_ids = prompt_completion_ids[:, prompt_length:]
+                        # Create completions and corresponding rewards
+                        # TODO: Refactor
+                        completions, rewards = [], []
+                        if self.strategy == "Oracle_Single":
+                            completions = list(itertools.chain.from_iterable(responses))
+                            rewards = list(itertools.chain.from_iterable(bb_scores))
+                            # Substitute a random guess with the target
+                            idx = random.randint(0, len(completions) - 1)
+                            completions[idx] = self.target
+                            rewards[idx] = 1.0
+                        elif self.strategy == "Online_Single":
+                            completions = list(itertools.chain.from_iterable(responses))
+                            rewards = list(itertools.chain.from_iterable(bb_scores))
+                        elif self.strategy == "Online_Mean":
+                            completions = responses
+                            rewards = [np.mean(scores) for scores in bb_scores]
+                        elif self.strategy == "Online_Max":
+                            completions = responses
+                            rewards = [np.max(scores) for scores in bb_scores]
 
-        # Get the per-token log probabilities for the completions for the model and the reference model
-        def get_per_token_logps(model, input_ids, num_logits_to_keep):
-            # We add 1 to `num_logits_to_keep` because the last logits of the sequence is later excluded
-            logits = model(input_ids, num_logits_to_keep=num_logits_to_keep + 1).logits  # (B, L, V)
-            logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
+                        # Update and log new guesses
+                        self.update_past_guesses(responses, bb_scores)
+                        logResponse(
+                            {
+                                f"Iteration: {self.iteration}": [
+                                    (x, y)
+                                    for x, y in zip(
+                                        list(itertools.chain.from_iterable(responses)),
+                                        list(itertools.chain.from_iterable(bb_scores)),
+                                    )
+                                ]
+                            },
+                            self.logfile,
+                        )
+                        # Change prompt to use the same number of words in each completion
+                        n = 1 if isinstance(completions[0], list) else len(completions[0])
+                        prompt = {
+                            "prompt": [
+                                {
+                                    "content": 'You are a helpful chatbot with high attention to detail who is not talkative and responds only \
+    with the answer and no additional conversation. All your responses should be in JSON format, i.e. {key: value}, where the \
+    key is always "response" and the value can be a string, int, list, or dict, depending on the context.',
+                                    "role": "system",
+                                },
+                                {
+                                    "content": f'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word \
+    English words. Now, guess exactly n={n} new word(s) that could be the hidden word. Be creative! (Note: give only \
+    a list of word(s) in the provided JSON format, e.g. {{"response": ["word1", "word2",...]}})',
+                                    "role": "user",
+                                },
+                            ]
+                        }
+                        prompt_text = [maybe_apply_chat_template(prompt, self.processing_class)["prompt"]]
+                        prompt_inputs = self.processing_class(
+                            prompt_text,
+                            return_tensors="pt",
+                            padding=True,
+                            padding_side="left",
+                            add_special_tokens=False,
+                        )
+                        completion_ids = []
+                        for i in range(len(completions)):
+                            ids = self.processing_class(
+                                json.dumps({"response": completions[i]}, indent=4),
+                                return_tensors="pt",
+                            ).input_ids.view(-1)
+                            completion_ids.append(ids)
+                        completion_ids = pad(completion_ids, padding_value=self.processing_class.pad_token_id)
+                        prompt_inputs_repeated = torch.repeat_interleave(
+                            prompt_inputs["input_ids"], len(completion_ids), dim=0
+                        )
+                        prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1)
+                        self.num_generations = len(completion_ids)
+                        valid_completion = True
+                        self.iteration += 1
+                    except Exception as e:
+                        retries += 1
+                        # print(e)
 
-            # Compute the log probabilities for the input tokens. Use a loop to reduce memory peak.
-            per_token_logps = []
-            for logits_row, input_ids_row in zip(logits, input_ids[:, -num_logits_to_keep:]):
-                log_probs = logits_row.log_softmax(dim=-1)
-                token_log_prob = torch.gather(log_probs, dim=1, index=input_ids_row.unsqueeze(1)).squeeze(1)
-                per_token_logps.append(token_log_prob)
-            return torch.stack(per_token_logps)
-
-        num_logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
-        per_token_logps = get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(device)
-
-        with torch.inference_mode():
-            if self.ref_model is not None:
-                ref_per_token_logps = get_per_token_logps(self.ref_model, prompt_completion_ids, num_logits_to_keep).to(
-                    device
-                )
-            else:
-                with self.accelerator.unwrap_model(model).disable_adapter():
-                    ref_per_token_logps = get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(
-                        device
-                    )
-
-        # Compute the KL divergence between the model and the reference model
-        per_token_kl = torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
-
-        # Mask everything after the first EOS token
-        is_eos = completion_ids == self.processing_class.eos_token_id
-        eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
-        eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)].to(device)
-        sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
-        completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
-
-        # Decode the generated completions
-        completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-        if is_conversational(inputs[0]):
-            completions = [[{"role": "assistant", "content": completion}] for completion in completions]
-
-        # Compute the rewards
-        prompts = [prompt for prompt in prompts for _ in range(self.num_generations)]
-
-        rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
-        for i, (reward_func, reward_processing_class) in enumerate(
-            zip(self.reward_funcs, self.reward_processing_classes)
-        ):
-            if isinstance(reward_func, PreTrainedModel):
-                if is_conversational(inputs[0]):
-                    messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
-                    texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
         if valid_completion:
             prompt_length = prompt_inputs["input_ids"].size(1)
             completion_ids = prompt_completion_ids[:, prompt_length:]
