@@ -243,7 +243,7 @@ class SemantleGRPOTrainer(GRPOTrainer):
                             self.logfile,
                         )
                         # Change prompt to use the same number of words in each completion
-                        n = 1 if isinstance(completions[0], list) else len(completions[0])
+                        n = 1 if isinstance(completions[0], str) else len(completions[0])
                         prompt = {
                             "prompt": [
                                 {
