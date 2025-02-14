@@ -22,6 +22,7 @@ from transformers.utils import (
     is_torch_mps_available,
 )
 from transformers.training_args import OptimizerNames
+from torch.nn.functional import cosine_similarity
 
 
 if is_sagemaker_mp_enabled():
@@ -52,7 +53,13 @@ def logResponse(response, logfile):
 class SemantleGRPOTrainer(GRPOTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+    def get_sim(self, word1, word2):
+        texts = [f"What is a {word1}?", f"What is a {word2}?"]
+        inputs = self.tokenizer_sim(texts, padding=True, truncation=True, return_tensors="pt").to(self.args.device)
+        with torch.no_grad():
+            embeddings = self.model_sim(**inputs, output_hidden_states=True, return_dict=True).pooler_output
 
+        return cosine_similarity(embeddings[0], embeddings[1], dim=0).item()
     def training_step(
         self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
     ) -> torch.Tensor:
