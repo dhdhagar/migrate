@@ -41,6 +41,14 @@ if is_apex_available():
     from apex import amp
 
 
+def logResponse(response, logfile):
+    with open(logfile, "r") as file:
+        data = json.load(file)
+        data["Guesses"].append(response)
+    with open(logfile, "w") as file:
+        json.dump(data, file, indent=4)
+
+
 class SemantleGRPOTrainer(GRPOTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
