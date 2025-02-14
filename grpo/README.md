@@ -18,4 +18,4 @@ accelerate launch train_grpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --tar
 - `Online_Max`
 
 ## Note
-- Llama 3.1 1B Instruct is unlikely to generate multiple valid completions so experiments with high `n_reps` will do poorly with this model
+- Llama 3.2 1B Instruct is unlikely to generate multiple valid completions so experiments with high `n_reps` will do poorly with this model
