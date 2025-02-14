@@ -73,7 +73,6 @@ class SemantleGRPOTrainer(GRPOTrainer):
             return loss_mb.reduce_mean().detach().to(self.args.device)
 
         with self.compute_loss_context_manager():
-            print(len(inputs), num_items_in_batch)
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
 
         del inputs
@@ -94,24 +93,27 @@ class SemantleGRPOTrainer(GRPOTrainer):
             else:
                 torch.cuda.empty_cache()
 
-        kwargs = {}
+        # Skip gradient step if loss is None
+        if loss is not None:
+            kwargs = {}
+            # For LOMO optimizers you need to explicitly use the learnign rate
+            if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+                kwargs["learning_rate"] = self._get_learning_rate()
 
-        # For LOMO optimizers you need to explicitly use the learnign rate
-        if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
-            kwargs["learning_rate"] = self._get_learning_rate()
+            if self.args.n_gpu > 1:
+                loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
-        if self.args.n_gpu > 1:
-            loss = loss.mean()  # mean() to average on multi-gpu parallel training
-
-        if self.use_apex:
-            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                scaled_loss.backward()
+            if self.use_apex:
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                self.accelerator.backward(loss, **kwargs)
+                # Finally we need to normalize the loss for reporting
+                if num_items_in_batch is None:
+                    return loss.detach() / self.args.gradient_accumulation_steps
+                return loss.detach()
         else:
-            self.accelerator.backward(loss, **kwargs)
-            # Finally we need to normalize the loss for reporting
-            if num_items_in_batch is None:
-                return loss.detach() / self.args.gradient_accumulation_steps
-            return loss.detach()
+            return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
