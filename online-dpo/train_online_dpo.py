@@ -1,4 +1,5 @@
 import os
+import time
 import argparse
 import json
 from datetime import datetime
@@ -115,7 +116,17 @@ additional conversation. All your responses should be in JSON format, i.e. {key:
         strategy=params["strategy"],
         warmstart=params["warmstart"],
     )
+    start_time = time.time()
+
     trainer.train()
+
+    # Log training time
+    train_time = time.time() - start_time
+    with open(logfile, "r") as file:
+        data = json.load(file)
+        data["Duration"] = train_time
+    with open(logfile, "w") as file:
+        json.dump(data, file, indent=4)
 
     # Sample from final trained model and log
     sample_prompt = [
