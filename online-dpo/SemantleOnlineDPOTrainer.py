@@ -55,6 +55,14 @@ def logResponse(response, logfile):
         json.dump(data, file, indent=4)
 
 
+def logRelatedWords(response, logfile):
+    with open(logfile, "r") as file:
+        data = json.load(file)
+        data["Related"].append(response)
+    with open(logfile, "w") as file:
+        json.dump(data, file, indent=4)
+
+
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(
