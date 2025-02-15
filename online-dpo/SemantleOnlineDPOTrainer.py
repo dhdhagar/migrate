@@ -63,6 +63,33 @@ def logRelatedWords(response, logfile):
         json.dump(data, file, indent=4)
 
 
+def sample_related_words(model, tokenizer, target_word, g):
+    prompt = [
+        {
+            "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
+            "only with the answer and no additional conversation. All your responses should be in JSON format, "
+            'i.e. {key: value}, where the key is always "response" and the value can be a string, int, list, '
+            "or dict, depending on the context.",
+            "role": "system",
+        },
+        {
+            "content": "Your task is to guess words related to a word from the English dictionary. Stick to proper, "
+            f"single-word English words. Now, guess exactly n={g} new word(s) that could be related to the word "
+            f'"{target_word}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
+            '{"response": ["word1", "word2",...]})',
+            "role": "user",
+        },
+    ]
+    inputs = tokenizer.apply_chat_template(prompt, tokenize=True, return_tensors="pt")
+    output = model.generate(inputs, num_return_sequences=1, max_new_tokens=512, temperature=0.9)[0][len(inputs[0]) :]
+    related_words = tokenizer.decode(output, skip_special_tokens=True)
+    related_words = related_words.split("\n")[-1]
+    try:
+        related_words = json.loads(related_words)["response"]
+        return related_words
+    except Exception as _:
+        return None
+
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(
