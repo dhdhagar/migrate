@@ -239,9 +239,10 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
             delta_pairs = []
             for guess, score in zip(completions, scores):
                 for prev_guess in prev_guesses:
-                    if guess != prev_guess[0] and score > prev_guess[1]:
-                        delta_pairs.append([[prev_guess[0], guess], prev_guess[1] - score])
-            delta_pairs = sorted(delta_pairs, key=lambda x: x[1])[: self.g]
+                    if guess != prev_guess[0] and prev_guess[1] > score:
+                        delta_pairs.append([[prev_guess[0], guess], prev_guess[1] - score, prev_guess[1]])
+            # Sort by chosen score first and then delta
+            delta_pairs = sorted(delta_pairs, key=lambda x: (-x[2], x[1]))[: self.g]
             pairs = [x[0] for x in delta_pairs]
             ranks = [int(x[1] < 0) for x in delta_pairs]
 
