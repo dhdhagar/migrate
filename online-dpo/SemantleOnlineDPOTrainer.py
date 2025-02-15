@@ -235,8 +235,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 ).input_ids.view(-1)
 
                 outputs = [
-                    torch.cat((output_prompt, pi_tensor)),
-                    torch.cat((output_prompt, ref_tensor)),
+                    torch.cat((output_prompt, pi_tensor, torch.tensor([self.ref_tokenizer.eos_token_id]))),
+                    torch.cat((output_prompt, ref_tensor, torch.tensor([self.ref_tokenizer.eos_token_id]))),
                 ]
                 max_length = max(len(outputs[0]), len(outputs[1]))
 
@@ -301,14 +301,14 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                         environment = jinja2.Environment()
                         template = environment.from_string(SIMPLE_CHAT_TEMPLATE)
                         prompts = [template.render(messages=prompt) for prompt in prompts]
-                        # print("COMPLETIONS", completions)
                         completions = [completion[0]["content"].strip() for completion in completions]
 
+                    # Use `ranks` that were previously computed instead of rejudging
                     ranks_of_first_completion = self.judge.judge(
                         prompts,
                         list(zip(completions[:num_examples], completions[num_examples:])),
                     )
-
+                    ranks_of_first_completion = [ranks[i]]
 
                     # convert ranks to a True/False mask:
                     # when rank == 0, it means the first completion is the best
