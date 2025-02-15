@@ -90,6 +90,21 @@ def sample_related_words(model, tokenizer, target_word, g):
     except Exception as _:
         return None
 
+
+partial_oracles = {
+    "airbase": [["airplay", 0.59577], ["airplane", 0.7133261], ["airfield", 0.8343316]],
+    "birthstone": [["topaz", 0.57368684], ["stonefaceless", 0.6203526], ["jewelstone", 0.7818818]],
+    "cement": [["ceramics", 0.6023039], ["cinder", 0.7185499], ["concrete", 0.8148617]],
+    "computer": [["parts", 0.6009335], ["machine", 0.717893], ["laptop", 0.8281281]],
+    "filament": [["bedding", 0.5998772], ["webbing", 0.685358], ["filaments", 0.8125428]],
+    "machetes": [["pickax", 0.6015184], ["cleaver", 0.7179322], ["machete", 0.8730302]],
+    "meatloaf": [["roaster", 0.6004665], ["tenderloin", 0.7293914], ["loafmeat", 0.8380054]],
+    "mob": [["group", 0.6105943], ["masses", 0.7245998], ["mobs", 0.8967455]],
+    "polyethylene": [["stuff", 0.5985743], ["acetylene", 0.7112042], ["polyester", 0.8660064]],
+    "skillet": [["dishcloth", 0.601084], ["kitchenware", 0.7172206], ["pan", 0.8994801]],
+}
+
+
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(
@@ -112,11 +127,20 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.strategy = strategy
 
         # Make 10 warmstart pairs
-        with open(f"warmstart/{target}.json", "r") as file:
-            words = json.load(file)[target][str(41 + warmstart)]
-            words = [x[0] for x in words]
-            random.shuffle(words)
-            self.warmstart = list(zip(words[::2], words[1::2]))
+        if warmstart != 0:
+            with open(f"warmstart/{target}.json", "r") as file:
+                words = json.load(file)[target][str(41 + int(np.round(warmstart)))]
+                words = [x[0] for x in words]
+                if warmstart == 0.6:
+                    words[0] = partial_oracles[target][0][0]
+                elif warmstart == 0.72:
+                    words[0] = partial_oracles[target][1][0]
+                elif warmstart == 0.9:
+                    words[0] = partial_oracles[target][2][0]
+                self.best_guesses.append({"word": words[0], "sim": words[1]})
+                self.warmstart = words
+        else:
+            self.warmstart = None
     def training_step(
         self,
         model: nn.Module,
