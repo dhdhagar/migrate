@@ -1,5 +1,6 @@
 import json
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import numpy as np
+from typing import Any, Dict, Optional, Union
 import jinja2
 from trl import (
     OnlineDPOTrainer,
@@ -43,11 +44,6 @@ else:
 
 if is_wandb_available():
     import wandb
-
-logger = logging.get_logger(__name__)
-
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # Log LLM repsonse
