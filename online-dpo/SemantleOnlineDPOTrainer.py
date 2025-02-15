@@ -52,12 +52,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Log LLM repsonse
 def logResponse(response, logfile):
-    try:
-        with open(logfile, "r") as file:
-            data = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = []
-    data.append(response)
+    with open(logfile, "r") as file:
+        data = json.load(file)
+        data["Guesses"].append(response)
     with open(logfile, "w") as file:
         json.dump(data, file, indent=4)
 
