@@ -13,8 +13,7 @@ from trl import (
 )
 from trl.models.utils import unwrap_model_for_generation
 from trl.trainer.utils import pad
-from accelerate.utils.other import is_compiled_module
-from accelerate.utils import broadcast_object_list, gather, gather_object
+from accelerate.utils import broadcast_object_list, gather_object
 from transformers import is_wandb_available, PreTrainedModel, AutoModel, AutoTokenizer
 from transformers.utils import (
     is_apex_available,
@@ -61,8 +60,7 @@ class SemantleGRPOTrainer(GRPOTrainer):
         self.logfile = logfile
         self.target = target
         embedder = "princeton-nlp/sup-simcse-roberta-large"
-        DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model_sim = AutoModel.from_pretrained(embedder).to(DEVICE)
+        self.model_sim = AutoModel.from_pretrained(embedder).to(self.args.device)
         self.tokenizer_sim = AutoTokenizer.from_pretrained(embedder)
         self.past_guesses = {}
         self.strategy = strategy
@@ -194,19 +192,29 @@ class SemantleGRPOTrainer(GRPOTrainer):
                 retries = 0
                 while not valid_completion and retries < 5:
                     try:
-                        completion_ids = unwrapped_model.generate(
-                            input_ids=prompt_inputs["input_ids"].repeat(self.n_reps, 1),
-                            attention_mask=prompt_inputs["attention_mask"].repeat(self.n_reps, 1),
-                            generation_config=self.generation_config,
-                        )
-                        prompt_length = prompt_inputs["input_ids"].size(1)
                         responses = []
                         bb_scores = []
-                        for completion in completion_ids:
-                            res = self.processing_class.decode(completion[prompt_length:], skip_special_tokens=True)
-                            guesses = json.loads(res)["response"][: self.num_guesses]
-                            responses.append(guesses)
-                            bb_scores.append([self.get_sim(guess, self.target) for guess in guesses])
+                        inner_retries = 0
+                        while len(responses) < self.n_reps and inner_retries < 2:
+                            completion_ids = unwrapped_model.generate(
+                                input_ids=prompt_inputs["input_ids"].repeat(self.n_reps, 1),
+                                attention_mask=prompt_inputs["attention_mask"].repeat(self.n_reps, 1),
+                                generation_config=self.generation_config,
+                            )
+                            prompt_length = prompt_inputs["input_ids"].size(1)
+                            for completion in completion_ids:
+                                res = self.processing_class.decode(completion[prompt_length:], skip_special_tokens=True)
+                                try:
+                                    guesses = json.loads(res)["response"][: self.num_guesses]
+                                    responses.append(guesses)
+                                    bb_scores.append([self.get_sim(guess, self.target) for guess in guesses])
+                                except Exception as _:
+                                    pass
+                                if len(responses) == self.n_reps:
+                                    break
+                            inner_retries += 1
+                        if len(responses) < self.n_reps:
+                            raise Exception("Not enough valid responses")
 
                         # Create completions and corresponding rewards
                         # TODO: Refactor
@@ -247,15 +255,18 @@ class SemantleGRPOTrainer(GRPOTrainer):
                         prompt = {
                             "prompt": [
                                 {
-                                    "content": 'You are a helpful chatbot with high attention to detail who is not talkative and responds only \
-    with the answer and no additional conversation. All your responses should be in JSON format, i.e. {key: value}, where the \
-    key is always "response" and the value can be a string, int, list, or dict, depending on the context.',
+                                    "content": "You are a helpful chatbot with high attention to detail who is not "
+                                    "talkative and responds only with the answer and no additional conversation. All "
+                                    "your responses should be in JSON format, i.e. {key: value}, where the key is "
+                                    'always "response" and the value can be a string, int, list, or dict, depending on '
+                                    "the context.",
                                     "role": "system",
                                 },
                                 {
-                                    "content": f'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word \
-    English words. Now, guess exactly n={n} new word(s) that could be the hidden word. Be creative! (Note: give only \
-    a list of word(s) in the provided JSON format, e.g. {{"response": ["word1", "word2",...]}})',
+                                    "content": "Your task is to guess a hidden word from the English dictionary. Stick "
+                                    f"to proper, single-word English words. Now, guess exactly n={n} new word(s) that "
+                                    "could be the hidden word. Be creative! (Note: give only a list of word(s) in the "
+                                    'provided JSON format, e.g. {"response": ["word1", "word2",...]})',
                                     "role": "user",
                                 },
                             ]
@@ -270,8 +281,9 @@ class SemantleGRPOTrainer(GRPOTrainer):
                         )
                         completion_ids = []
                         for i in range(len(completions)):
+                            response = [completions[i]] if n == 1 else completions[i]
                             ids = self.processing_class(
-                                json.dumps({"response": completions[i]}, indent=4),
+                                json.dumps({"response": response}, indent=4),
                                 return_tensors="pt",
                             ).input_ids.view(-1)
                             completion_ids.append(ids)
