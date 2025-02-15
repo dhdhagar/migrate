@@ -252,28 +252,14 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                         environment = jinja2.Environment()
                         template = environment.from_string(SIMPLE_CHAT_TEMPLATE)
                         prompts = [template.render(messages=prompt) for prompt in prompts]
-                        # completions = [
-                        #     template.render(messages=completion) for completion in completions
-                        # ]
                         # print("COMPLETIONS", completions)
                         completions = [completion[0]["content"].strip() for completion in completions]
 
-                    ranks_of_first_completion, best_sims = self.judge.judge(
+                    ranks_of_first_completion = self.judge.judge(
                         prompts,
                         list(zip(completions[:num_examples], completions[num_examples:])),
                     )
 
-                    # Update Best guesses
-                    try:
-                        best_sims = self.best_guesses + best_sims
-                        unique_guesses = {}
-                        for item in best_sims:
-                            unique_guesses[item["word"]] = item
-                        self.best_guesses = sorted(unique_guesses.values(), key=lambda x: x["sim"])[-self.num_guesses :]
-                        best = self.best_guesses[-5:]
-                        self.best_guesses = best * (self.num_guesses // 5)
-                    except:
-                        pass
 
                     # convert ranks to a True/False mask:
                     # when rank == 0, it means the first completion is the best
