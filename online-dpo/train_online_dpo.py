@@ -14,9 +14,6 @@ from transformers import (
 from peft import LoraConfig
 import torch
 
-import pandas as pd
-from tqdm import tqdm
-
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
