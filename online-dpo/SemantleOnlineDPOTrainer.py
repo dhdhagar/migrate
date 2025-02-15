@@ -108,15 +108,7 @@ partial_oracles = {
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(
-        self,
-        tokenizer,
-        target,
-        num_guesses,
-        strategy,
-        logfile,
-        warmstart,
-        *args,
-        **kwargs,
+        self, tokenizer, target, num_guesses, strategy, logfile, warmstart, g, n_reps, sample_related, *args, **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.ref_tokenizer = tokenizer
@@ -125,6 +117,11 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.logfile = logfile
         self.best_guesses = []
         self.strategy = strategy
+        self.past_guesses = {}
+        self.g = g
+        self.n_reps = n_reps
+        self.iteration = 0
+        self.sample_related = sample_related
 
         # Make 10 warmstart pairs
         if warmstart != 0:
