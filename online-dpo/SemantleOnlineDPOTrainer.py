@@ -138,6 +138,13 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 self.warmstart = words
         else:
             self.warmstart = None
+
+    def update_past_guesses(self, responses, bb_scores):
+        guesses = list(itertools.chain.from_iterable(responses))
+        scores = list(itertools.chain.from_iterable(bb_scores))
+        for word, score in zip(guesses, scores):
+            self.past_guesses[word] = score
+
     def training_step(
         self,
         model: nn.Module,
