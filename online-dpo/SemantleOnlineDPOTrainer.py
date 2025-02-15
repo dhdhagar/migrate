@@ -453,11 +453,11 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     self.accelerator.backward(loss, **kwargs)
 
                 total_loss += loss
-        except:
+        except Exception as e:
             pass
+
         del inputs
 
-        # return loss.detach() / self.args.gradient_accumulation_steps
         return total_loss.detach() / self.args.gradient_accumulation_steps
 
     def _maybe_log_save_evaluate(
