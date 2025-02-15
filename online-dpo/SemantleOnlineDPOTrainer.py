@@ -167,22 +167,152 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         # Sample 2 completions per prompt of size `max_new_tokens` from the model
         inputs = self._prepare_inputs(inputs)
         num_examples, context_length = inputs["prompt_input_ids"].shape
-        prompt_ids = inputs["prompt_input_ids"].repeat(2, 1)
-        prompt_mask = inputs["prompt_attention_mask"].repeat(2, 1)
-        with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
-            output = unwrapped_model.generate(
-                input_ids=prompt_ids[0].unsqueeze(0),
-                attention_mask=prompt_mask[0].unsqueeze(0),
-                generation_config=self.generation_config,
-            )
-            output = output.repeat(2, 1)
+        prompt_ids = inputs["prompt_input_ids"].repeat(self.n_reps, 1)
+        prompt_mask = inputs["prompt_attention_mask"].repeat(self.n_reps, 1)
 
-        # Re-init with "n=1" prompt
-        for i in range(len(copy_inputs["prompt"])):
-            # Change user prompt to specify "n=1", system prompt remains the same
-            copy_inputs["prompt"][i][1][
-                "content"
-            ] = 'Your task is to guess a hidden word from the English dictionary. Stick to proper, single-word English words. Now, guess exactly n=1 new word(s) that could be the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {"response": ["word1", "word2",...]})'
+        valid_completion = False
+        retries = 0
+        responses = []
+        bb_scores = []
+        while not valid_completion and retries < 3:
+            responses = []
+            bb_scores = []
+            with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
+                completion_ids = unwrapped_model.generate(
+                    input_ids=prompt_ids,
+                    attention_mask=prompt_mask,
+                    generation_config=self.generation_config,
+                )
+                prompt_length = prompt_ids.size(1)
+                try:
+                    for completion in completion_ids:
+                        res = self.ref_tokenizer.decode(completion[prompt_length:], skip_special_tokens=True)
+                        guesses = json.loads(res)["response"][: self.num_guesses]
+                        responses.append(guesses)
+                        bb_scores.append([self.judge.get_sim(guess, self.target) for guess in guesses])
+                    valid_completion = True
+                except Exception as _:
+                    retries += 1
+
+        total_loss = torch.tensor(0.0, dtype=torch.float32)
+        # Skip this gradient step if a valid completion was not able to generate
+        if not valid_completion:
+            return total_loss.detach()
+
+        # Construct initial pairing according to strategy
+        pairs, ranks = [], []
+        self.update_past_guesses(responses, bb_scores)
+        if self.strategy == "oracle":
+            completions = list(itertools.chain.from_iterable(responses))
+            pairs = [[self.target, res] for res in completions]
+            ranks = [0] * len(completions)
+        elif self.strategy == "random":
+            completions = list(itertools.chain.from_iterable(responses))
+            scores = list(itertools.chain.from_iterable(bb_scores))
+            tmp = [[word, score] for word, score in zip(completions, scores)]
+            tmp_pairs = list(itertools.combinations(tmp, 2))
+            random.shuffle(tmp_pairs)
+            tmp_pairs = tmp_pairs[: self.g]
+            pairs = [[x[0][0], x[1][0]] for x in tmp_pairs]
+            ranks = [int(x[0][1] < x[1][1]) for x in tmp_pairs]
+        elif self.strategy == "greedy":
+            completions = list(itertools.chain.from_iterable(responses))
+            scores = list(itertools.chain.from_iterable(bb_scores))
+            best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
+            pairs = [[best_guess[0], guess] for guess in completions]
+            ranks = [int(best_guess[1] < score) for score in scores]
+        elif self.strategy == "top_delta":
+            completions = list(itertools.chain.from_iterable(responses))
+            scores = list(itertools.chain.from_iterable(bb_scores))
+            prev_guesses = list(self.past_guesses.items())
+            delta_pairs = []
+            for guess, score in zip(completions, scores):
+                for prev_guess in prev_guesses:
+                    delta_pairs.append([[prev_guess[0], guess], prev_guess[1] - score])
+            delta_pairs = sorted(delta_pairs, key=lambda x: x[1], reverse=True)[: self.g]
+            pairs = [x[0] for x in delta_pairs]
+            ranks = [int(x[1] < 0) for x in delta_pairs]
+        elif self.strategy == "hard":
+            completions = list(itertools.chain.from_iterable(responses))
+            scores = list(itertools.chain.from_iterable(bb_scores))
+            prev_guesses = list(self.past_guesses.items())
+            delta_pairs = []
+            for guess, score in zip(completions, scores):
+                for prev_guess in prev_guesses:
+                    if guess != prev_guess[0] and score > prev_guess[1]:
+                        delta_pairs.append([[prev_guess[0], guess], score - prev_guess[1]])
+            delta_pairs = sorted(delta_pairs, key=lambda x: x[1])[: self.g]
+            pairs = [x[0] for x in delta_pairs]
+            ranks = [int(x[1] < 0) for x in delta_pairs]
+
+        # Sample related words and substitute for chosen word in pairs
+        if self.sample_related:
+            try:
+                related_words = {}
+                for i, pair in enumerate(pairs[1:]):  # Keep the best original pair
+                    chosen_word = pair[0]
+                    if chosen_word not in related_words or len(related_words[chosen_word]) == 0:
+                        with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
+                            chosen_related_words = sample_related_words(
+                                unwrapped_model, self.ref_tokenizer, chosen_word, self.g
+                            )
+                            related_words[chosen_word] = []
+                            for word in chosen_related_words:
+                                score = self.judge.get_sim(word, self.target)
+                                related_words[chosen_word].append([word, score])
+                            logRelatedWords(
+                                {
+                                    f"Iteration: {self.iteration}, chosen: {chosen_word}": str(
+                                        related_words[chosen_word]
+                                    )
+                                },
+                                self.logfile,
+                            )
+
+                            # Shuffle related words so they are chosen randomly
+                            random.shuffle(related_words[chosen_word])
+
+                            # Carry related words over to future iterations
+                            for word in related_words[chosen_word]:
+                                self.past_guesses[word[0]] = word[1]
+
+                    # Only substitute chosen word if related word has a higher score
+                    related_word = related_words[chosen_word].pop(0)
+                    if related_word[1] > self.judge.get_sim(chosen_word, self.target):
+                        pairs[i + 1][0] = related_word[0]
+            except Exception as e:
+                pass
+
+        logResponse(
+            {
+                f"Iteration: {self.iteration}": [
+                    (x, y)
+                    for x, y in zip(
+                        list(itertools.chain.from_iterable(responses)),
+                        list(itertools.chain.from_iterable(bb_scores)),
+                    )
+                ]
+            },
+            self.logfile,
+        )
+
+        n = len(pairs[0][0])
+        copy_inputs["prompt"][0] = [
+            {
+                "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
+                "only with the answer and no additional conversation. All your responses should be in JSON format, i.e. "
+                '{key: value}, where the key is always "response" and the value can be a string, int, list, or dict, '
+                "depending on the context.",
+                "role": "system",
+            },
+            {
+                "content": "Your task is to guess a hidden word from the English dictionary. Stick to proper, "
+                f"single-word English words. Now, guess exactly n={n} new word(s) that could be the hidden word. Be "
+                'creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {"response": '
+                '["word1", "word2",...]})',
+                "role": "user",
+            },
+        ]
         prompts = copy_inputs["prompt"]
         inputs = [{k: v[i] for k, v in copy_inputs.items()} for i in range(batch_size)]
         inputs = [maybe_apply_chat_template(x, self.processing_class) for x in inputs]
@@ -192,53 +322,23 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         num_examples, context_length = inputs["prompt_input_ids"].shape
         prompt_ids = inputs["prompt_input_ids"].repeat(2, 1)
         prompt_mask = inputs["prompt_attention_mask"].repeat(2, 1)
+        output_prompt = prompt_ids[0]
 
-        response = self.ref_tokenizer.decode(
-            output[0, context_length:], skip_special_tokens=True
-        )
-        output_prompt = output[0, :context_length]
-
-        logResponse({"guess": response}, self.logfile)  # Log response
-
-        # bool for skipping gradient update if llm response is invalid
-        skip_update = False
-        total_loss = torch.tensor(0.0, dtype=torch.float32)
         try:
-            try:
-                res = json.loads(response)
-                responses = res["response"][: self.num_guesses]
-                random.shuffle(responses)  # shuffle for greedy
-                pairs = list(itertools.combinations(responses, 2))
-                random.shuffle(pairs)
-                num_prefs = len(pairs)
-            except:
-                responses = None
-                num_prefs = 0
-
-            num_prefs = self.num_guesses
+            # num_prefs = self.num_guesses
+            num_prefs = len(pairs)
             for i in range(num_prefs):
-                # Randomly choose pairs on the first iteration or if non-greedy
-                if self.strategy == "random" or (self.strategy == "greedy" and len(self.best_guesses) < num_prefs):
-                    # Create response pairs to judge
-                    if self.warmstart:
-                        pairs = self.warmstart[:num_prefs]
-                    else:
-                        self.warmstart = None
-                    pi_guess, ref_guess = pairs[i]
-                # If greedy, compare each generated word with previous top words
-                elif self.strategy == "greedy":
-                    pi_guess, ref_guess = responses[i], self.best_guesses[i]["word"]
-                # If oracle, compare each generated word with the target word
-                elif self.strategy == "oracle":
-                    pi_guess, ref_guess = responses[i], self.target
-
+                # Create completion_idsa for pair
+                pi_guess, ref_guess = pairs[i]
                 pi_tensor = self.ref_tokenizer(
                     json.dumps({"response": [pi_guess]}, indent=4),
                     return_tensors="pt",
+                    add_special_tokens=False,
                 ).input_ids.view(-1)
                 ref_tensor = self.ref_tokenizer(
                     json.dumps({"response": [ref_guess]}, indent=4),
                     return_tensors="pt",
+                    add_special_tokens=False,
                 ).input_ids.view(-1)
 
                 outputs = [
@@ -254,6 +354,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 prompt_ids = prompt_ids[0].repeat((output.shape[0], 1))
                 prompt_mask = prompt_mask[0].repeat((output.shape[0], 1))
                 num_examples = 1
+
+                # COMPUTE LOSS
                 completion_ids = output[:, context_length:]
                 completion_ids, completion_mask = truncate_right(
                     completion_ids,
