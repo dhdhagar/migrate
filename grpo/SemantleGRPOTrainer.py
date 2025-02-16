@@ -235,6 +235,22 @@ class SemantleGRPOTrainer(GRPOTrainer):
                         elif self.strategy == "Online_Max":
                             completions = responses
                             rewards = [np.max(scores) for scores in bb_scores]
+                        elif self.strategy == "Online_Batch_Mean":
+                            completions = list(itertools.chain.from_iterable(responses))
+                            scores = list(itertools.chain.from_iterable(bb_scores))
+                            word_scores = [[word, score] for word, score in zip(completions, scores)]
+                            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
+                            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                            completions = [[x[0][0], x[1][0]] for x in word_scores]
+                            rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
+                        elif self.strategy == "Online_Batch_Max":
+                            completions = list(itertools.chain.from_iterable(responses))
+                            scores = list(itertools.chain.from_iterable(bb_scores))
+                            word_scores = [[word, score] for word, score in zip(completions, scores)]
+                            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
+                            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                            completions = [[x[0][0], x[1][0]] for x in word_scores]
+                            rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
 
                         # Update and log new guesses
                         self.update_past_guesses(responses, bb_scores)
