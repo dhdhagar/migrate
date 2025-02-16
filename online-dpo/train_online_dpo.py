@@ -120,6 +120,7 @@ def main():
         g=params["g"],
         n_reps=params["n_reps"],
         sample_related=params["related"],
+        task=params["task"],
     )
     start_time = time.time()
 

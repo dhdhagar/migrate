@@ -26,6 +26,7 @@ from transformers.utils import is_peft_available, is_sagemaker_mp_enabled, loggi
 import itertools
 import random
 from packaging import version
+import prompts as prompts_getter
 
 if is_peft_available():
     from peft import PeftModel, get_peft_model
@@ -80,7 +81,19 @@ partial_oracles = {
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(
-        self, tokenizer, target, batch_size, strategy, logfile, warmstart, g, n_reps, sample_related, *args, **kwargs
+        self,
+        tokenizer,
+        target,
+        batch_size,
+        strategy,
+        logfile,
+        warmstart,
+        g,
+        n_reps,
+        sample_related,
+        task,
+        *args,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.ref_tokenizer = tokenizer
@@ -94,6 +107,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.n_reps = n_reps
         self.iteration = 0
         self.sample_related = sample_related
+        self.task = task
 
         # Make 10 warmstart pairs
         if warmstart != 0:
@@ -308,22 +322,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         )
 
         n = len(pairs[0][0])
-        copy_inputs["prompt"][0] = [
-            {
-                "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
-                "only with the answer and no additional conversation. All your responses should be in JSON format, i.e. "
-                '{key: value}, where the key is always "response" and the value can be a string, int, list, or dict, '
-                "depending on the context.",
-                "role": "system",
-            },
-            {
-                "content": "Your task is to guess a hidden word from the English dictionary. Stick to proper, "
-                f"single-word English words. Now, guess exactly n={n} new word(s) that could be the hidden word. Be "
-                'creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {"response": '
-                '["word1", "word2",...]})',
-                "role": "user",
-            },
-        ]
+        copy_inputs["prompt"][0] = prompts_getter.get_prompt(self.task, n)
         prompts = copy_inputs["prompt"]
         inputs = [{k: v[i] for k, v in copy_inputs.items()} for i in range(batch_size)]
         inputs = [maybe_apply_chat_template(x, self.processing_class) for x in inputs]
