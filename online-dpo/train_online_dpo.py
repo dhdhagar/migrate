@@ -13,6 +13,7 @@ from transformers import (
 )
 from peft import LoraConfig
 import torch
+import prompts as prompts
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -30,32 +31,13 @@ def parse_arguments():
     parser.add_argument("--g", type=int, default=5)
     parser.add_argument("--related", action="store_true", default=False)
     parser.add_argument("--date", type=str, default="")
+    parser.add_argument("--task", type=str, default="semantle")
     args = parser.parse_args()
     return args
 
 
 def create_dataset(params):
-    return [
-        {
-            "prompt": [
-                {
-                    "content": "You are a helpful chatbot with high attention to detail who is not talkative and "
-                    "responds only with the answer and no additional conversation. All your responses should be in JSON "
-                    'format, i.e. {key: value}, where the key is always "response" and the value can be a string, int, '
-                    "list, or dict, depending on the context.",
-                    "role": "system",
-                },
-                {
-                    "content": "Your task is to guess a hidden word from the English dictionary. Stick to proper, "
-                    f'single-word English words. Now, guess exactly n={params["num_guesses"]} new word(s) that could be '
-                    "the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. "
-                    '{"response": ["word1", "word2",...]})',
-                    "role": "user",
-                },
-            ]
-        }
-        for _ in range(params["steps"])
-    ]
+    return [{"prompt": prompts.get_prompt(params["task"], params["batch_size"])} for _ in range(params["steps"])]
 
 
 def setup_logging(params):
