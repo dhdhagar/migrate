@@ -38,7 +38,7 @@ for target in "${targets[@]}"; do
 done
 python generate_plots.py --date ${current_time} --model "$model_name" --steps 100 --strategy "Online_Batch_Mean"
 
-Mean# Online_Batch_Max
+# Online_Batch_Max
 current_time=$(date "+%Y-%m-%d_%H-%M-%S")
 for target in "${targets[@]}"; do
   accelerate launch train_grpo.py --date "$current_time" --model "$model_name" --target "$target" --n_reps 1 --num_guesses 10 --strategy "Online_Batch_Max"
