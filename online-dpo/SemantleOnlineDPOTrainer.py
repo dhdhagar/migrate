@@ -219,12 +219,12 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         elif self.strategy == "random":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
-            tmp = [[word, score] for word, score in zip(completions, scores)]
-            tmp_pairs = list(itertools.combinations(tmp, 2))
-            random.shuffle(tmp_pairs)
-            tmp_pairs = tmp_pairs[: self.g]
-            pairs = [[x[0][0], x[1][0]] for x in tmp_pairs]
-            ranks = [int(x[0][1] < x[1][1]) for x in tmp_pairs]
+            completion_scores = [[completion, score] for completion, score in zip(completions, scores)]
+            random.shuffle(completion_scores)
+            pairs = [(completion_scores[i], completion_scores[i + 1]) for i in range(0, len(completion_scores), 2)]
+            pairs = pairs[: self.g]
+            pairs = [[x[0][0], x[1][0]] for x in pairs]
+            ranks = [int(x[0][1] < x[1][1]) for x in pairs]
         elif self.strategy == "greedy":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
