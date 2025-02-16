@@ -63,7 +63,7 @@ def logRelatedWords(response, logfile):
         json.dump(data, file, indent=4)
 
 
-def sample_related_words(model, tokenizer, target_word, g):
+def sample_related_words(model, tokenizer, chosen_word, g):
     prompt = [
         {
             "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
@@ -75,7 +75,7 @@ def sample_related_words(model, tokenizer, target_word, g):
         {
             "content": "Your task is to guess words related to a word from the English dictionary. Stick to proper, "
             f"single-word English words. Now, guess exactly n={g} new word(s) that could be related to the word "
-            f'"{target_word}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
+            f'"{chosen_word}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
             '{"response": ["word1", "word2",...]})',
             "role": "user",
         },
