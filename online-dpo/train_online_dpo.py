@@ -13,7 +13,7 @@ from transformers import (
 )
 from peft import LoraConfig
 import torch
-import prompts as prompts
+import prompts as prompts_getter
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -37,7 +37,7 @@ def parse_arguments():
 
 
 def create_dataset(params):
-    return [{"prompt": prompts.get_prompt(params["task"], params["batch_size"])} for _ in range(params["steps"])]
+    return [{"prompt": prompts_getter.get_prompt(params["task"], params["batch_size"])} for _ in range(params["steps"])]
 
 
 def setup_logging(params):
@@ -134,7 +134,7 @@ def main():
         json.dump(data, file, indent=4)
 
     # Sample from final trained model and log
-    sample_prompt = [{"prompt": prompts.get_prompt(params["task"], 20)}]
+    sample_prompt = [{"prompt": prompts_getter.get_prompt(params["task"], 20)}]
     inputs = tokenizer.apply_chat_template(sample_prompt, tokenize=True, return_tensors="pt").to(DEVICE)
     output = model.generate(inputs, num_return_sequences=1, max_new_tokens=512, temperature=0.9)[0][len(inputs[0]) :]
     with open(logfile, "r") as file:
