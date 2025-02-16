@@ -143,7 +143,6 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 generation_config=self.generation_config,
             )
         related_words = self.ref_tokenizer.decode(completion_ids[0, prompt_ids.size(1) :], skip_special_tokens=True)
-        related_words = related_words.split("\n")[-1]
         try:
             related_words = json.loads(related_words)["response"]
             return related_words
