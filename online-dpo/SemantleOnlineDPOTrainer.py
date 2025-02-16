@@ -214,7 +214,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.update_past_guesses(responses, bb_scores)
         if self.strategy == "oracle":
             completions = list(itertools.chain.from_iterable(responses))
-            pairs = [[self.target, res] for res in completions]
+            pairs = [[self.target, completion] for completion in completions]
             ranks = [0] * len(completions)
         elif self.strategy == "random":
             completions = list(itertools.chain.from_iterable(responses))
