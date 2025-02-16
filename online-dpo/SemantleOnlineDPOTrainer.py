@@ -111,7 +111,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         else:
             self.warmstart = None
 
-    def sample_related_words(self, model, chosen_word, n):
+    def sample_related_completions(self, model, chosen_completion, n):
         inputs = {
             "prompt": [
                 {
@@ -124,7 +124,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 {
                     "content": "Your task is to guess words related to a word from the English dictionary. Stick to proper, "
                     f"single-word English words. Now, guess exactly n={n} new word(s) that could be related to the word "
-                    f'"{chosen_word}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
+                    f'"{chosen_completion}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
                     '{"response": ["word1", "word2",...]})',
                     "role": "user",
                 },
@@ -228,9 +228,9 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         elif self.strategy == "greedy":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
-            best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
-            pairs = [[best_guess[0], guess] for guess in completions]
-            ranks = [int(best_guess[1] < score) for score in scores]
+            best_completion = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
+            pairs = [[best_completion[0], guess] for guess in completions]
+            ranks = [int(best_completion[1] < score) for score in scores]
         elif self.strategy == "top_delta":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
@@ -264,7 +264,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     chosen_word = pair[0]
                     if chosen_word not in related_words or len(related_words[chosen_word]) == 0:
                         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
-                            chosen_related_words = self.sample_related_words(model, chosen_word, self.g)
+                            chosen_related_words = self.sample_related_completions(model, chosen_word, self.g)
                             related_words[chosen_word] = []
                             for word in chosen_related_words:
                                 score = self.judge.get_sim(word, self.target)
