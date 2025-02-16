@@ -63,34 +63,6 @@ def logRelatedWords(response, logfile):
         json.dump(data, file, indent=4)
 
 
-def sample_related_words(model, tokenizer, chosen_word, g):
-    prompt = [
-        {
-            "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
-            "only with the answer and no additional conversation. All your responses should be in JSON format, "
-            'i.e. {key: value}, where the key is always "response" and the value can be a string, int, list, '
-            "or dict, depending on the context.",
-            "role": "system",
-        },
-        {
-            "content": "Your task is to guess words related to a word from the English dictionary. Stick to proper, "
-            f"single-word English words. Now, guess exactly n={g} new word(s) that could be related to the word "
-            f'"{chosen_word}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
-            '{"response": ["word1", "word2",...]})',
-            "role": "user",
-        },
-    ]
-    inputs = tokenizer.apply_chat_template(prompt, tokenize=True, return_tensors="pt")
-    output = model.generate(inputs, num_return_sequences=1, max_new_tokens=512, temperature=0.9)[0][len(inputs[0]) :]
-    related_words = tokenizer.decode(output, skip_special_tokens=True)
-    related_words = related_words.split("\n")[-1]
-    try:
-        related_words = json.loads(related_words)["response"]
-        return related_words
-    except Exception as _:
-        return None
-
-
 partial_oracles = {
     "airbase": [["airplay", 0.59577], ["airplane", 0.7133261], ["airfield", 0.8343316]],
     "birthstone": [["topaz", 0.57368684], ["stonefaceless", 0.6203526], ["jewelstone", 0.7818818]],
@@ -138,6 +110,45 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 self.warmstart = words
         else:
             self.warmstart = None
+
+    def sample_related_words(self, model, chosen_word, n):
+        inputs = {
+            "prompt": [
+                {
+                    "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
+                    "only with the answer and no additional conversation. All your responses should be in JSON format, "
+                    'i.e. {key: value}, where the key is always "response" and the value can be a string, int, list, '
+                    "or dict, depending on the context.",
+                    "role": "system",
+                },
+                {
+                    "content": "Your task is to guess words related to a word from the English dictionary. Stick to proper, "
+                    f"single-word English words. Now, guess exactly n={n} new word(s) that could be related to the word "
+                    f'"{chosen_word}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
+                    '{"response": ["word1", "word2",...]})',
+                    "role": "user",
+                },
+            ]
+        }
+        inputs = maybe_apply_chat_template(inputs, self.processing_class)
+        inputs = [self.tokenize_row(inputs, self.model.config.is_encoder_decoder, self.processing_class)]
+        inputs = self.data_collator(inputs)
+        inputs = self._prepare_inputs(inputs)
+        prompt_ids = inputs["prompt_input_ids"]
+        prompt_mask = inputs["prompt_attention_mask"]
+        with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
+            completion_ids = unwrapped_model.generate(
+                input_ids=prompt_ids,
+                attention_mask=prompt_mask,
+                generation_config=self.generation_config,
+            )
+        related_words = self.ref_tokenizer.decode(completion_ids[0, prompt_ids.size(1) :], skip_special_tokens=True)
+        related_words = related_words.split("\n")[-1]
+        try:
+            related_words = json.loads(related_words)["response"]
+            return related_words
+        except Exception as _:
+            return None
 
     def update_past_guesses(self, responses, bb_scores):
         guesses = list(itertools.chain.from_iterable(responses))
@@ -254,9 +265,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     chosen_word = pair[0]
                     if chosen_word not in related_words or len(related_words[chosen_word]) == 0:
                         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
-                            chosen_related_words = sample_related_words(
-                                unwrapped_model, self.ref_tokenizer, chosen_word, self.g
-                            )
+                            chosen_related_words = self.sample_related_words(model, chosen_word, self.g)
                             related_words[chosen_word] = []
                             for word in chosen_related_words:
                                 score = self.judge.get_sim(word, self.target)
