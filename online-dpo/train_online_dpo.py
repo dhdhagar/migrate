@@ -23,7 +23,7 @@ def parse_arguments():
     parser.add_argument("--4bit", action="store_true", default=False)
     parser.add_argument("--target", "-t", type=str, default="computer")
     parser.add_argument("--strategy", "-s", type=str, default="random")
-    parser.add_argument("--num_guesses", "-b", type=int, default=10)
+    parser.add_argument("--batch_size", "-b", type=int, default=10)
     parser.add_argument("--n_reps", "-n", type=int, default=1)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--warmstart", type=float, default=0)
@@ -118,7 +118,7 @@ def main():
         per_device_train_batch_size=1,
         num_train_epochs=1,
         temperature=0.9,
-        max_new_tokens=int(32 + (5 * params["num_guesses"])),
+        max_new_tokens=int(32 + (5 * params["batch_size"])),
         beta=0.01,
         # disable_dropout=False,
     )
@@ -131,7 +131,7 @@ def main():
         peft_config=peft_config,
         tokenizer=tokenizer,
         target=params["target"],
-        num_guesses=params["num_guesses"],
+        batch_size=params["batch_size"],
         logfile=logfile,
         strategy=params["strategy"],
         warmstart=params["warmstart"],

@@ -80,12 +80,12 @@ partial_oracles = {
 class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
     def __init__(
-        self, tokenizer, target, num_guesses, strategy, logfile, warmstart, g, n_reps, sample_related, *args, **kwargs
+        self, tokenizer, target, batch_size, strategy, logfile, warmstart, g, n_reps, sample_related, *args, **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.ref_tokenizer = tokenizer
         self.target = target
-        self.num_guesses = num_guesses
+        self.batch_size = batch_size
         self.logfile = logfile
         self.best_guesses = []
         self.strategy = strategy
@@ -197,7 +197,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 try:
                     for completion in completion_ids:
                         res = self.ref_tokenizer.decode(completion[prompt_length:], skip_special_tokens=True)
-                        guesses = json.loads(res)["response"][: self.num_guesses]
+                        guesses = json.loads(res)["response"][: self.batch_size]
                         responses.append(guesses)
                         bb_scores.append([self.judge.get_sim(guess, self.target) for guess in guesses])
                     valid_completion = True
@@ -336,7 +336,6 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         output_prompt = prompt_ids[0]
 
         try:
-            # num_prefs = self.num_guesses
             num_prefs = len(pairs)
             for i in range(num_prefs):
                 # Create completion_idsa for pair
