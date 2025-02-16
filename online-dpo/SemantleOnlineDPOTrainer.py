@@ -89,7 +89,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.logfile = logfile
         self.best_guesses = []
         self.strategy = strategy
-        self.past_guesses = {}
+        self.past_completions = {}
         self.g = g
         self.n_reps = n_reps
         self.iteration = 0
@@ -149,11 +149,11 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         except Exception as _:
             return None
 
-    def update_past_guesses(self, responses, bb_scores):
+    def update_past_completions(self, responses, bb_scores):
         guesses = list(itertools.chain.from_iterable(responses))
         scores = list(itertools.chain.from_iterable(bb_scores))
         for word, score in zip(guesses, scores):
-            self.past_guesses[word] = score
+            self.past_completions[word] = score
 
     def training_step(
         self,
@@ -211,7 +211,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
         # Construct initial pairing according to strategy
         pairs, ranks = [], []
-        self.update_past_guesses(responses, bb_scores)
+        self.update_past_completions(responses, bb_scores)
         if self.strategy == "oracle":
             completions = list(itertools.chain.from_iterable(responses))
             pairs = [[self.target, completion] for completion in completions]
@@ -228,29 +228,31 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         elif self.strategy == "greedy":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
-            best_completion = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
+            best_completion = sorted(self.past_completions.items(), key=lambda x: x[1], reverse=True)[0]
             pairs = [[best_completion[0], guess] for guess in completions]
             ranks = [int(best_completion[1] < score) for score in scores]
         elif self.strategy == "top_delta":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
-            prev_guesses = list(self.past_guesses.items())
+            prev_completions = list(self.past_completions.items())
             delta_pairs = []
             for guess, score in zip(completions, scores):
-                for prev_guess in prev_guesses:
-                    delta_pairs.append([[prev_guess[0], guess], prev_guess[1] - score])
+                for prev_completion in prev_completions:
+                    delta_pairs.append([[prev_completion[0], guess], prev_completion[1] - score])
             delta_pairs = sorted(delta_pairs, key=lambda x: x[1], reverse=True)[: self.g]
             pairs = [x[0] for x in delta_pairs]
             ranks = [int(x[1] < 0) for x in delta_pairs]
         elif self.strategy == "hard":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
-            prev_guesses = list(self.past_guesses.items())
+            prev_completions = list(self.past_completions.items())
             delta_pairs = []
-            for guess, score in zip(completions, scores):
-                for prev_guess in prev_guesses:
-                    if guess != prev_guess[0] and prev_guess[1] > score:
-                        delta_pairs.append([[prev_guess[0], guess], prev_guess[1] - score, prev_guess[1]])
+            for completion, score in zip(completions, scores):
+                for prev_completion in prev_completions:
+                    if completion != prev_completion[0] and prev_completion[1] > score:
+                        delta_pairs.append(
+                            [[prev_completion[0], completion], prev_completion[1] - score, prev_completion[1]]
+                        )
             # Sort by chosen score first and then delta
             delta_pairs = sorted(delta_pairs, key=lambda x: (-x[2], x[1]))[: self.g]
             pairs = [x[0] for x in delta_pairs]
@@ -283,7 +285,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
                             # Carry related words over to future iterations
                             for word in related_words[chosen_word]:
-                                self.past_guesses[word[0]] = word[1]
+                                self.past_completions[word[0]] = word[1]
 
                     # Only substitute chosen word if related word has a higher score
                     related_word = related_words[chosen_word].pop(0)
