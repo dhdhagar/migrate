@@ -112,7 +112,6 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         if warmstart != 0:
             with open(f"warmstart/{target}.json", "r") as file:
                 words = json.load(file)[target][str(41 + int(np.round(warmstart)))]
-                words = [x[0] for x in words]
                 if warmstart == 0.6:
                     words[0] = partial_oracles[target][0][0]
                 elif warmstart == 0.72:
