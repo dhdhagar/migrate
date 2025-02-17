@@ -51,7 +51,7 @@ if is_wandb_available():
 def logResponse(response, logfile):
     with open(logfile, "r") as file:
         data = json.load(file)
-        data["Guesses"].append(response)
+        data["Completions"].append(response)
     with open(logfile, "w") as file:
         json.dump(data, file, indent=4)
 
@@ -100,7 +100,6 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.target = target
         self.batch_size = batch_size
         self.logfile = logfile
-        self.best_guesses = []
         self.strategy = strategy
         self.past_completions = {}
         self.g = g
@@ -109,7 +108,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
         self.sample_related = sample_related
         self.task = task
 
-        # Make 10 warmstart pairs
+        # Make 10 warmstart pairs / only for semantle
         if warmstart != 0:
             with open(f"warmstart/{target}.json", "r") as file:
                 words = json.load(file)[target][str(41 + int(np.round(warmstart)))]
@@ -120,7 +119,8 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                     words[0] = partial_oracles[target][1][0]
                 elif warmstart == 0.9:
                     words[0] = partial_oracles[target][2][0]
-                self.best_guesses.append({"word": words[0], "sim": words[1]})
+                for word in words:
+                    self.past_completions[word[0]] = word[1]
                 self.warmstart = words
         else:
             self.warmstart = None
@@ -213,7 +213,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                         res = self.ref_tokenizer.decode(completion[prompt_length:], skip_special_tokens=True)
                         guesses = json.loads(res)["response"][: self.batch_size]
                         responses.append(guesses)
-                        bb_scores.append([self.judge.get_sim(guess, self.target) for guess in guesses])
+                        bb_scores.append([self.judge.get_bb_score(guess, self.target) for guess in guesses])
                     valid_completion = True
                 except Exception as _:
                     retries += 1
@@ -283,7 +283,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                             chosen_related_words = self.sample_related_completions(model, chosen_word, self.g)
                             related_words[chosen_word] = []
                             for word in chosen_related_words:
-                                score = self.judge.get_sim(word, self.target)
+                                score = self.judge.get_bb_score(word, self.target)
                                 related_words[chosen_word].append([word, score])
                             logRelatedWords(
                                 {
@@ -303,7 +303,7 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
 
                     # Only substitute chosen word if related word has a higher score
                     related_word = related_words[chosen_word].pop(0)
-                    if related_word[1] > self.judge.get_sim(chosen_word, self.target):
+                    if related_word[1] > self.judge.get_bb_score(chosen_word, self.target):
                         pairs[i + 1][0] = related_word[0]
             except Exception as e:
                 pass

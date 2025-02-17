@@ -19,7 +19,7 @@ class SimPairJudge(BasePairwiseJudge):
         self.scores = {target: 1.0}
 
     # TODO: Move this to the trainer class
-    def get_sim(self, x1, x2):
+    def get_bb_score(self, x1, x2):
         texts = [f"What is a {x1}?", f"What is a {x2}?"]
         inputs = self.tokenizer_sim(texts, padding=True, truncation=True, return_tensors="pt").to(DEVICE)
         with torch.no_grad():

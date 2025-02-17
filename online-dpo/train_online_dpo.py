@@ -46,7 +46,7 @@ def setup_logging(params):
     os.makedirs(logdir, exist_ok=True)
     logfile = f"{logdir}/{timestamp}.log"
     with open(logfile, "w") as file:
-        json.dump({"Params": params, "Guesses": [], "Related": [], "Final_Sample": ""}, file, indent=4)
+        json.dump({"Params": params, "Completions": [], "Related": [], "Final_Sample": ""}, file, indent=4)
     return logfile
 
 
