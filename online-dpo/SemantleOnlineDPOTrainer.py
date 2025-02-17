@@ -56,7 +56,7 @@ def logResponse(response, logfile):
         json.dump(data, file, indent=4)
 
 
-def logRelatedWords(response, logfile):
+def logRelatedCompletions(response, logfile):
     with open(logfile, "r") as file:
         data = json.load(file)
         data["Related"].append(response)
@@ -156,18 +156,20 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
                 attention_mask=prompt_mask,
                 generation_config=self.generation_config,
             )
-        related_words = self.ref_tokenizer.decode(completion_ids[0, prompt_ids.size(1) :], skip_special_tokens=True)
+        related_completions = self.ref_tokenizer.decode(
+            completion_ids[0, prompt_ids.size(1) :], skip_special_tokens=True
+        )
         try:
-            related_words = json.loads(related_words)["response"]
-            return related_words
+            related_completions = json.loads(related_completions)["response"]
+            return related_completions
         except Exception as _:
             return None
 
     def update_past_completions(self, responses, bb_scores):
         guesses = list(itertools.chain.from_iterable(responses))
         scores = list(itertools.chain.from_iterable(bb_scores))
-        for word, score in zip(guesses, scores):
-            self.past_completions[word] = score
+        for completion, score in zip(guesses, scores):
+            self.past_completions[completion] = score
 
     def training_step(
         self,
@@ -272,39 +274,41 @@ class SemantleOnlineDPOTrainer(OnlineDPOTrainer):
             pairs = [x[0] for x in delta_pairs]
             ranks = [int(x[1] < 0) for x in delta_pairs]
 
-        # Sample related words and substitute for chosen word in pairs
+        # Sample related completions and substitute for chosen completion in pairs
         if self.sample_related:
             try:
-                related_words = {}
+                related_completions = {}
                 for i, pair in enumerate(pairs[1:]):  # Keep the best original pair
-                    chosen_word = pair[0]
-                    if chosen_word not in related_words or len(related_words[chosen_word]) == 0:
+                    chosen_completion = pair[0]
+                    if chosen_completion not in related_completions or len(related_completions[chosen_completion]) == 0:
                         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
-                            chosen_related_words = self.sample_related_completions(model, chosen_word, self.g)
-                            related_words[chosen_word] = []
-                            for word in chosen_related_words:
-                                score = self.judge.get_bb_score(word, self.target)
-                                related_words[chosen_word].append([word, score])
-                            logRelatedWords(
+                            chosen_related_completions = self.sample_related_completions(
+                                model, chosen_completion, self.g
+                            )
+                            related_completions[chosen_completion] = []
+                            for completion in chosen_related_completions:
+                                score = self.judge.get_bb_score(completion, self.target)
+                                related_completions[chosen_completion].append([completion, score])
+                            logRelatedCompletions(
                                 {
-                                    f"Iteration: {self.iteration}, chosen: {chosen_word}": str(
-                                        related_words[chosen_word]
+                                    f"Iteration: {self.iteration}, chosen: {chosen_completion}": str(
+                                        related_completions[chosen_completion]
                                     )
                                 },
                                 self.logfile,
                             )
 
-                            # Shuffle related words so they are chosen randomly
-                            random.shuffle(related_words[chosen_word])
+                            # Shuffle related completions so they are chosen randomly
+                            random.shuffle(related_completions[chosen_completion])
 
-                            # Carry related words over to future iterations
-                            for word in related_words[chosen_word]:
-                                self.past_completions[word[0]] = word[1]
+                            # Carry related completions over to future iterations
+                            for completion in related_completions[chosen_completion]:
+                                self.past_completions[completion[0]] = completion[1]
 
-                    # Only substitute chosen word if related word has a higher score
-                    related_word = related_words[chosen_word].pop(0)
-                    if related_word[1] > self.judge.get_bb_score(chosen_word, self.target):
-                        pairs[i + 1][0] = related_word[0]
+                    # Only substitute chosen completion if related completion has a higher score
+                    related_completion = related_completions[chosen_completion].pop(0)
+                    if related_completion[1] > self.judge.get_bb_score(chosen_completion, self.target):
+                        pairs[i + 1][0] = related_completion[0]
             except Exception as e:
                 pass
 
