@@ -14,26 +14,56 @@ Example of running an individual experiment
 accelerate launch train_online_dpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --date "2025-01-1_00-00-00" --target "computer" -s "oracle" --warmstart "1"
 ```
 
-## Currently Implemented Preference Constructions
+## Arguments
+- `--model`
+  - The repository ID of the model to train.
+- `--4bit`
+  - To use a 4-bit model. The default quantization is 8-bit.
+- `--target`
+  - The target to search/optimize for.
+- `--strategy`
+  - The type of preference construction to use (see [Preference Constructions](#Preference-Constructions)).
+- `--batch_size`
+  - The number of completions in each online generation call.
+- `--n_reps`
+  - The number of online generation calls in each training iteration.
+- `--warmstart`
+  - The warmstart of completions to initialize with (only applicable for `Semantle`)
+- `--g`
+  - The number of preferences to fine-tune on in each iteration.
+- `--related`
+  - Enable to sample related completions.
+- `--date`
+  - Used as naming directory for logs.
+- `--task`
+  - The task to run (see [Tasks](#Tasks)).
+
+## Tasks
+- [x] Semantle
+- [ ] Molecule Optimization
+- [ ] Math Reasoning
+
+## Preference Constructions
 In each iteration, `g` preference pairs are created according to the following strategies:
-- `Oracle`
+- [x] `Oracle`
   - The chosen completion is replaced with the `target`
-- `Random`
-  - `g` pairs are randomly chosen from all possible pairing
-- `Greedy`
+- [x] `Random`
+  - Online sample is shuffled and split into `g` pairs (all online words are in a pair)
+  - Previous implementation: ~~`g` pairs are randomly chosen from all possible pairing~~
+- [x] `Greedy`
   - The chosen completion is replaced with the best completion found so far
-- `Top_delta`
+- [x] `Top_delta`
   - The top `g` pairs with the largest delta in black-box scores
   - The chosen completion can be any completion found so far
   - The rejected completion must be a completion from the online sample of the active model
-- `Hard`
+- [x] `Hard`
   - The top `g` pairs with the highest completion scores and smallest delta in scores
   - Pairs are sorted by highest chosen's score and then by smallest delta 
   - The chosen completion can be any completion found so far
   - The rejected completion must be a completion from the online sample of the active model
-- `Greedy-Related`
+- [x] `Greedy-Related`
   - Similar to `Greedy` but substitutes the chosen completion with a related word
-- `Top_delta-Related`
+- [x] `Top_delta-Related`
   - Similar to `Top_delta` but substitutes the chosen completion with a related word
-- `Hard-Related`
+- [x] `Hard-Related`
   - Similar to `Hard-Related` but substitutes the chosen completion with a related word
