@@ -33,6 +33,7 @@ def load_results(strat, date, steps):
     results = {strat: []}
     for target in targets:
         files = glob.glob(f"logs/{strat}/{date}/{target}/*.log")
+        files = sorted(files)
         if len(files) == 0:
             raise Exception(f"Results at logs/{strat}/{date}/{target}/*.log does not exist")
         samples = []
