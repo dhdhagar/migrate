@@ -53,27 +53,13 @@ def parse_arguments():
 
 
 def create_dataset(params):
-    return [
-        {
-            "prompt": [
-                {
-                    "content": "You are a helpful chatbot with high attention to detail who is not talkative and "
-                    "responds only with the answer and no additional conversation. All your responses should be in JSON "
-                    'format, i.e. {key: value}, where the key is always "response" and the value can be a string, int, '
-                    "list, or dict, depending on the context.",
-                    "role": "system",
-                },
-                {
-                    "content": "Your task is to guess a hidden word from the English dictionary. Stick to proper, "
-                    f'single-word English words. Now, guess exactly n={params["num_guesses"]} new word(s) that could be '
-                    "the hidden word. Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. "
-                    '{"response": ["word1", "word2",...]})',
-                    "role": "user",
-                },
-            ]
-        }
-        for _ in range(params["steps"])
-    ]
+    if params["task"] != "arc":
+        return [
+            {"prompt": prompts_getter.get_prompt(params["task"], params["num_guesses"], params["target"])}
+            for _ in range(params["steps"])
+        ]
+    else:
+        return prompts_getter.get_arc_prompt(params["target"], params["arc_dataset_file"])
 
 
 def setup_logging(params):
@@ -144,6 +130,10 @@ def main():
     params = vars(args)
 
     dataset = create_dataset(params)
+    print(dataset)
+    # dataset = [dataset[0].copy() for i in range(100)]
+    if params["task"] == "arc":
+        params["batch_size"] = len(dataset)
 
     # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)
