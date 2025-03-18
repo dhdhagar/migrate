@@ -175,6 +175,47 @@ def main():
     with open(logfile, "w") as file:
         json.dump(data, file, indent=4)
 
+    if params["task"] == "arc":
+        with open(params["arc_dataset_file"], "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        context_examples = data[params["target"]]["train"]
+        context = ""
+        for example in context_examples:
+            input_arr = np.array(example["input"])
+            input_str = np.array2string(input_arr, separator=" ", formatter={"all": lambda x: str(x)})
+            output_arr = np.array(example["output"])
+            output_str = np.array2string(output_arr, separator=" ", formatter={"all": lambda x: str(x)})
+            context += f"{input_str} -> {output_str}#\n"
+
+        prompt = [
+            {
+                "content": "Figure out the underlying transformation in the following examples and apply it to the test case. "
+                "Here are some examples from this transformation, your answer must follow the format. Respond with only the output grid.\nThe input-output grids "
+                "are provided as python arrays:\n",
+                "role": "system",
+            },
+            {"content": "", "role": "user"},
+        ]
+        prompt[0]["content"] += context
+        prompt[1]["content"] = f'{np.array(data[params["target"]]["test"][0]["input"])} -> '
+
+        inputs = tokenizer.apply_chat_template([prompt], tokenize=True, return_tensors="pt").to(DEVICE)
+        attention_mask = (inputs != tokenizer.pad_token_id).long()
+        with torch.no_grad():
+            output0 = model.generate(inputs, attention_mask=attention_mask, do_sample=False, max_new_tokens=1024)[
+                :, len(inputs[0]) :
+            ]
+            output = model.generate(
+                inputs, attention_mask=attention_mask, num_return_sequences=5, max_new_tokens=1024, temperature=0.9
+            )[:, len(inputs[0]) :]
+        with open(logfile, "r") as file:
+            data = json.load(file)
+        decoded_greedy = tokenizer.batch_decode(output0, skip_special_tokens=True)
+        decoded_sample = tokenizer.batch_decode(output, skip_special_tokens=True)
+        data["Final_Sample"] = decoded_greedy + decoded_sample
+        with open(logfile, "w") as file:
+            json.dump(data, file, indent=4)
+
 
 if __name__ == "__main__":
     main()
