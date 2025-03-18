@@ -1,0 +1,119 @@
+import re
+import numpy as np
+import glob
+import json
+
+
+def parse_response(output: str) -> np.ndarray:
+    """
+    Parses a LLM string response for an ARC grid.
+
+    Parameters:
+    - output (str): A string response from a LLM.
+
+    Returns:
+    - np.ndarray: A NumPy array of type int8 representing the parsed 2D array.
+    """
+
+    # Find instances of the start and end of an ARC grid
+    start_idx = [match.start() for match in re.finditer(r"\[\[", output)]
+    end_idx = [match.start() for match in re.finditer(r"\]\]", output)]
+    if len(start_idx) > 0 and len(end_idx) > 0:
+        # Parse the last grid found in the response into a 2D array
+        arr = parse_numpy_from_str(output[start_idx[-1] : end_idx[-1] + 2])
+        return arr
+    return np.array([])
+
+
+def parse_numpy_from_str(array_str: str) -> np.ndarray:
+    """
+    Parses a string representation of a 2D array into a NumPy ndarray.
+
+    Parameters:
+    - array_str (str): A string representation of a 2D array, where rows are separated by newlines.
+
+    Returns:
+    - np.ndarray: A NumPy array of type int8 representing the parsed 2D array.
+    """
+    try:
+        # Remove the surrounding brackets from the string
+        clean_str = array_str.replace("#", "").replace(",", "").replace("[", "").replace("]", "")
+
+        # Split the cleaned string by whitespace to get individual elements and convert them to integers
+        elements = list(map(int, clean_str.split()))
+
+        # Determine the number of rows by counting the newline characters and adding one
+        rows = array_str.count("\n") + 1
+
+        # Calculate the number of columns by dividing the total number of elements by the number of rows
+        cols = len(elements) // rows
+
+        # Create the NumPy array with the determined shape and convert it to type int8
+        array = np.array(elements).reshape((rows, cols)).astype(np.int8)
+
+        return array
+    except Exception as e:
+        # Print the exception message and the original string for debugging purposes
+        print(e)
+        print(array_str)
+        # Return a default 1x1 array with a zero element in case of an error
+        # raise e
+        return None
+
+
+def hamming_distance(solution, attempt):
+    output = solution
+    attempt = np.array(attempt)
+    output_size = output.shape[0] * output.shape[1]
+    # if shapes are different find the minimum shape
+    min_width = min(output.shape[1], attempt.shape[1])
+    min_height = min(output.shape[0], attempt.shape[0])
+    output = output[:min_height, :min_width]
+    attempt = attempt[:min_height, :min_width]
+    # remaining number of elementx
+    additional_elements = output_size - (min_height * min_width)
+    return (int(np.sum(output != attempt)) + additional_elements) / output_size
+
+
+def get_training_scores(tasks, log_dir, iterations):
+    results = {task: [] for task in tasks}
+    for task in tasks:
+        files = glob.glob(f"{log_dir}/{task}/*.log")
+        for file_name in files[-1:]:
+            with open(file_name, "r") as file:
+                data = json.load(file)
+            batch_size = len(data["Guesses"]) // iterations
+            for i in range(iterations):
+                batch_scores = []
+                for j in range(batch_size):
+                    try:
+                        batch = data["Guesses"][i * batch_size + j]
+                        batch = batch[list(batch.keys())[0]]
+                        scores = [1 - x[1] for x in batch[:-1]]
+                        batch_scores.append([np.mean(scores), np.min(scores)])
+                    except Exception as e:
+                        print(e, task, i * batch_size + j)
+                        if len(batch_scores) > 0:
+                            batch_scores.append(batch_scores[-1])
+                        else:
+                            batch_scores.append([1, 1])
+                batch_scores = np.array(batch_scores)
+                try:
+                    results[task].append([np.mean(batch_scores[:, 0]), np.mean(batch_scores[:, 1])])
+                except Exception as _:
+                    results[task].append([1, 1])
+    return results
+
+
+def get_training_time(tasks, log_dir):
+    durations = []
+    for task in tasks:
+        files = glob.glob(f"{log_dir}/{task}/*.log")
+        for file_name in files[-1:]:
+            with open(file_name, "r") as file:
+                data = json.load(file)
+            try:
+                durations.append(data["Duration"])
+            except Exception as _:
+                pass
+    return durations
