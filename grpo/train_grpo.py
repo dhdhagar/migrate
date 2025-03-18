@@ -1,3 +1,4 @@
+from unsloth import FastLanguageModel  # Needs to be first import
 import os
 import time
 from datetime import datetime
@@ -12,6 +13,14 @@ from transformers import (
     AutoTokenizer,
     BitsAndBytesConfig,
 )
+# from peft import LoraConfig
+# from transformers import (
+#     AutoModelForCausalLM,
+#     AutoTokenizer,
+#     BitsAndBytesConfig,
+# )
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def parse_arguments():
@@ -64,31 +73,51 @@ def setup_logging(params):
 
 
 def setup_model(params):
-    peft_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
-        lora_dropout=0.1,
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-    )
-    if params["4bit"]:
-        quant_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-    else:
-        quant_config = BitsAndBytesConfig(load_in_8bit=True)
+    # peft_config = LoraConfig(
+    # peft_config = FastLanguageModel.get_peft_model(
+    #     r=128,
+    #     lora_alpha=32,
+    #     lora_dropout=0.0,
+    #     bias="none",
+    #     task_type="CAUSAL_LM",
+    #     # target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    #     target_modules=["q_proj", "v_proj"],
+    #     use_gradient_checkpointing = "unsloth"
+    # )
+    # if params["4bit"]:
+    #     quant_config = BitsAndBytesConfig(
+    #         load_in_4bit=True,
+    #         bnb_4bit_use_double_quant=True,
+    #         bnb_4bit_quant_type="nf4",
+    #         bnb_4bit_compute_dtype=torch.bfloat16,
+    #     )
+    # else:
+    #     quant_config = BitsAndBytesConfig(load_in_8bit=True)
 
-    model = AutoModelForCausalLM.from_pretrained(
-        params["model"], device_map="auto", quantization_config=quant_config, torch_dtype=torch.bfloat16
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        params["model"],
+        device_map="auto",
+        max_lora_rank=params["lora_rank"],
+        gpu_memory_utilization=0.8,
+        # quantization_config=quant_config,
+        # torch_dtype=torch.bfloat16,
     )
-    tokenizer = AutoTokenizer.from_pretrained(params["model"])
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r=params["lora_rank"],
+        lora_alpha=params["lora_alpha"],
+        lora_dropout=params["lora_dropout"],
+        bias="none",
+        # target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        target_modules=["q_proj", "v_proj"],
+        use_rslora=False,
+        loftq_config=None,
+        # use_gradient_checkpointing = "unsloth"
+    )
+    # tokenizer = AutoTokenizer.from_pretrained(params["model"]) # no need with unsloth
     tokenizer.pad_token = tokenizer.eos_token
     model.generation_config.pad_token_id = tokenizer.pad_token_id
-    return model, tokenizer, peft_config
+    return model, tokenizer  # , peft_config
 
 
 # Placeholder reward func. We process and compute our own rewards in the trainer
@@ -102,7 +131,8 @@ def main():
 
     dataset = create_dataset(params)
 
-    model, tokenizer, peft_config = setup_model(params)
+    # model, tokenizer, peft_config = setup_model(params)
+    model, tokenizer = setup_model(params)
 
     logfile = setup_logging(params)
 
