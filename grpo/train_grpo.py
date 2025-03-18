@@ -48,6 +48,7 @@ def parse_arguments():
     parser.add_argument(
         "--arc_dataset_file", type=str, default="kaggle/input/arc-prize-2024/arc-agi_evaluation_challenges.json"
     )
+    parser.add_argument("--save_model", action="store_true", default=False)
     args = parser.parse_args()
     return args
 
@@ -69,7 +70,7 @@ def setup_logging(params):
     logfile = f"{logdir}/{timestamp}.log"
     with open(logfile, "w") as file:
         json.dump({"Params": params, "Guesses": [], "Chosen": [], "Validation": [], "Final_Sample": ""}, file, indent=4)
-    return logfile
+    return logdir, logfile
 
 
 def setup_model(params):
@@ -130,7 +131,6 @@ def main():
     params = vars(args)
 
     dataset = create_dataset(params)
-    print(dataset)
     # dataset = [dataset[0].copy() for i in range(100)]
     if params["task"] == "arc":
         params["batch_size"] = len(dataset)
@@ -138,7 +138,7 @@ def main():
     # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)
 
-    logfile = setup_logging(params)
+    logdir, logfile = setup_logging(params)
 
     training_args = GRPOConfig(
         output_dir="GRPO",
@@ -223,6 +223,10 @@ def main():
         data["Final_Sample"] = decoded_greedy + decoded_sample
         with open(logfile, "w") as file:
             json.dump(data, file, indent=4)
+
+    # Save model
+    if params["save_model"]:
+        model.save_pretrained_merged(logdir, tokenizer, save_method="lora")
 
 
 if __name__ == "__main__":
