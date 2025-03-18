@@ -4,7 +4,7 @@
 #SBATCH --mem=50000
 #SBATCH -p gpu-preempt
 #SBATCH -G 1
-#SBATCH --constraint=[a40|l40s|a100&vram80]
+#SBATCH --constraint=[a40|l40s|a100]
 #SBATCH --time 8:00:00
 #SBATCH -A pi_mccallum_umass_edu
 #SBATCH -o logs/slurm-Eval--%j.out
