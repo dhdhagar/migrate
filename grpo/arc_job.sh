@@ -39,3 +39,15 @@ model_name="ekinakyurek/marc-8B-finetuned-llama3"
 for target in "${targets[@]}"; do
   accelerate launch train_grpo.py --date "$current_time" --model "$model_name" --target "$target" --n_reps 10 --num_guesses 1 --strategy "Greedy_Single" --task "arc"
 done
+
+# Other arguments
+# learning_rate
+# num_train_epochs
+# online_temperature
+# online_max_completion_length
+# beta
+# lora_rank
+# lora_alpha
+# lora_dropout
+# target_modules
+# arc_dataset_file
