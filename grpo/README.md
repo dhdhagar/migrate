@@ -1,5 +1,12 @@
 # Test-Time Search with GRPO
 
+## Create environment
+```
+conda create -n arc_grpo python=3.10
+conda activate arc_grpo 
+pip install -r requirements.txt
+```
+
 ## Instructions for running (semantle) experiments
 All experiments are in `scripts.sh` and can be ran with the following command:
 ```
@@ -14,6 +21,10 @@ accelerate launch train_grpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --tar
 ## Instructions for running (ARC) experiments
 ```
 sh arc.sh
+```
+or 
+```
+sbatch arc_job.sh
 ```
 
 ### Arguments
