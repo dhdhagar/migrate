@@ -29,7 +29,7 @@ sbatch arc_job.sh
 
 ### Arguments
 
-- `--model`
+- `--model` -- Default: `ekinakyurek/marc-8B-finetuned-llama3`
 - `--target` -- ARC task ID
 - `--n_reps` -- Number of online samples per training step
 - `--strategy` -- One of the strategies below (use `Greedy_Single` for ARC for now)
