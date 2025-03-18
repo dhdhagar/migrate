@@ -6,13 +6,13 @@ import argparse
 import json
 import torch
 from trl import GRPOConfig
-from SemantleGRPOTrainer import SemantleGRPOTrainer
-from peft import LoraConfig
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-)
+
+# from GRPOTrainer import GRPOTrainer
+from trainers.ARCTrainer import GRPOTrainer
+import prompts as prompts_getter
+import numpy as np
+from typing import List
+
 # from peft import LoraConfig
 # from transformers import (
 #     AutoModelForCausalLM,
@@ -34,6 +34,20 @@ def parse_arguments():
     parser.add_argument("--warmstart", type=float, default=0)
     parser.add_argument("--strategy", type=str, default="Oracle_Single")
     parser.add_argument("--date", type=str, default="")
+    parser.add_argument("--related", action="store_true", default=False)
+    parser.add_argument("--task", type=str, default="semantle")
+    parser.add_argument("--learning_rate", type=float, default=5e-5)
+    parser.add_argument("--num_train_epochs", type=int, default=15)
+    parser.add_argument("--online_temperature", type=float, default=0.9)
+    parser.add_argument("--online_max_completion_length", type=int, default=512)
+    parser.add_argument("--beta", type=float, default=0.0)
+    parser.add_argument("--lora_rank", type=int, default=128)
+    parser.add_argument("--lora_alpha", type=int, default=32)
+    parser.add_argument("--lora_dropout", type=int, default=0)
+    parser.add_argument("--target_modules", type=List[str], default=["q_proj", "v_proj"])
+    parser.add_argument(
+        "--arc_dataset_file", type=str, default="kaggle/input/arc-prize-2024/arc-agi_evaluation_challenges.json"
+    )
     args = parser.parse_args()
     return args
 
@@ -68,7 +82,7 @@ def setup_logging(params):
     os.makedirs(logdir, exist_ok=True)
     logfile = f"{logdir}/{timestamp}.log"
     with open(logfile, "w") as file:
-        json.dump({"Params": params, "Guesses": [], "Final_Sample": ""}, file, indent=4)
+        json.dump({"Params": params, "Guesses": [], "Chosen": [], "Validation": [], "Final_Sample": ""}, file, indent=4)
     return logfile
 
 
@@ -141,27 +155,31 @@ def main():
         logging_steps=5,
         fp16=False,
         bf16=True,
-        learning_rate=7e-5,
+        learning_rate=params["learning_rate"],
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=1,
-        num_train_epochs=1,
-        temperature=0.9,
+        gradient_accumulation_steps=len(dataset),
+        # gradient_accumulation_steps=1,
+        num_train_epochs=params["num_train_epochs"],
+        # num_train_epochs=1,
+        temperature=params["online_temperature"],
         num_generations=1,
-        max_completion_length=128,
-        beta=0.01,
+        max_completion_length=params["online_max_completion_length"],
+        beta=params["beta"],
     )
-    trainer = SemantleGRPOTrainer(
+    trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        peft_config=peft_config,
+        # peft_config=peft_config, # no need with unsloth
         reward_funcs=reward_len,
         args=training_args,
         train_dataset=dataset,
         logfile=logfile,
         target=params["target"],
-        num_guesses=params["num_guesses"],
         n_reps=params["n_reps"],
         strategy=params["strategy"],
+        sample_related=params["related"],
+        task=params["task"],
+        arc_dataset_file=params["arc_dataset_file"],
     )
     start_time = time.time()
 
