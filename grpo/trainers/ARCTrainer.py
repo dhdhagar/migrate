@@ -50,7 +50,7 @@ if is_apex_available():
     from apex import amp
 
 
-def logResponse(response, logfile):
+def log_response(response, logfile):
     with open(logfile, "r") as file:
         data = json.load(file)
         data["guesses"].append(response)
@@ -58,7 +58,7 @@ def logResponse(response, logfile):
         json.dump(data, file, indent=4)
 
 
-def logChosen(response, logfile):
+def log_chosen(response, logfile):
     with open(logfile, "r") as file:
         data = json.load(file)
         data["chosen"].append(response)
@@ -102,11 +102,13 @@ class GRPOTrainer(GRPOTrainer):
         self.continue_training = True
 
     # Compute black-box score
-    def get_bb_score(self, completion1, completion2):
-        hamming = arc_utils.hamming_distance(completion2, completion1)
-        print("ATTEMPT\n", completion1)
-        print("HAMMING", hamming)
-        return 1 - hamming
+    def get_bb_score(self, completion1, completion2, verbose=True):
+        score = 1 - arc_utils.hamming_distance(completion1, completion2)
+        if verbose:
+            print("ATTEMPT:\n", completion2)
+            print("SOLUTION:\n", completion1)
+            print("SCORE:", score)
+        return score
 
     # Record new completions and their black-box scores
     def update_past_guesses(self, responses, bb_scores):
@@ -172,9 +174,9 @@ class GRPOTrainer(GRPOTrainer):
             scores = []
             for attempt in attempts:
                 if len(attempt) > 0:
-                    scores.append(arc_utils.hamming_distance(self.validation_example["solution"], attempt))
+                    scores.append(self.get_bb_score(self.validation_example["solution"], attempt))
                 else:
-                    scores.append(1)
+                    scores.append(0)
 
             print("VALIDATION HAMMING", scores)
             with open(self.logfile, "r") as file:
@@ -195,7 +197,7 @@ class GRPOTrainer(GRPOTrainer):
         if self.iteration % self.args.gradient_accumulation_steps == 0:
             scores = self.run_validation(model)
             # if scores.count(0) >= 4:
-            if scores.count(0) > 0:
+            if scores.count(1.) > 0:  # Number of solved instances
                 self.continue_training = False
                 return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
 
@@ -253,6 +255,22 @@ class GRPOTrainer(GRPOTrainer):
         else:
             return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
 
+    @staticmethod
+    def get_per_token_logps(model, input_ids, num_logits_to_keep):
+        # Get the per-token log probabilities for the completions for the model and the reference model
+
+        # We add 1 to `num_logits_to_keep` because the last logits of the sequence is later excluded
+        logits = model(input_ids, num_logits_to_keep=num_logits_to_keep + 1).logits  # (B, L, V)
+        logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
+
+        # Compute the log probabilities for the input tokens. Use a loop to reduce memory peak.
+        per_token_logps = []
+        for logits_row, input_ids_row in zip(logits, input_ids[:, -num_logits_to_keep:]):
+            log_probs = logits_row.log_softmax(dim=-1)
+            token_log_prob = torch.gather(log_probs, dim=1, index=input_ids_row.unsqueeze(1)).squeeze(1)
+            per_token_logps.append(token_log_prob)
+        return torch.stack(per_token_logps)
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
@@ -262,8 +280,8 @@ class GRPOTrainer(GRPOTrainer):
         prompts = [x["prompt"] for x in inputs]
         self.arc_leave_out_idx = inputs[0]["leave_out_idx"]
         self.arc_sol = np.array(inputs[0]["solution"])
-        print("LEAVE OUT IDX:", self.arc_leave_out_idx)
-        print("GOLD SOLUTION\n", self.arc_sol)
+        # print("LEAVE OUT IDX:", self.arc_leave_out_idx)
+        # print("GOLD SOLUTION\n", self.arc_sol)
 
         # Load/initialize past guesses according to leave-out
         if self.arc_leave_out_idx in self.arc_past_guesses:
@@ -534,15 +552,13 @@ class GRPOTrainer(GRPOTrainer):
                             print("AFTER", completions)
                             print("AFTER", rewards)
 
-                    # print("RESPONSES", responses)
-                    # print(bb_scores)
-                    print("COMPLETIONS", completions)
-                    print("REWARDS", rewards)
-                    print("MEAN REWARD", np.mean(rewards))
+                    print("COMPLETIONS:\n", completions)
+                    print("REWARDS:\n", rewards)
+                    print("MEAN REWARD:", np.mean(rewards))
 
                     # Record guesses into history and log repsonses
                     self.update_past_guesses(responses, bb_scores)
-                    logResponse(
+                    log_response(
                         {
                             f"Iteration: {self.iteration}": [
                                 (x, y)
@@ -574,36 +590,22 @@ class GRPOTrainer(GRPOTrainer):
             except Exception as _:
                 pass
 
-        # Only comupte loss if completion was valid and there are more than 1 completion in the group
+        # Only compute loss if completion was valid and there are more than 1 completion in the group
         if valid_completion and self.num_generations > 1:
             prompt_length = prompt_inputs["input_ids"].size(1)
             completion_ids = prompt_completion_ids[:, prompt_length:]
 
-            # Get the per-token log probabilities for the completions for the model and the reference model
-            def get_per_token_logps(model, input_ids, num_logits_to_keep):
-                # We add 1 to `num_logits_to_keep` because the last logits of the sequence is later excluded
-                logits = model(input_ids, num_logits_to_keep=num_logits_to_keep + 1).logits  # (B, L, V)
-                logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
-
-                # Compute the log probabilities for the input tokens. Use a loop to reduce memory peak.
-                per_token_logps = []
-                for logits_row, input_ids_row in zip(logits, input_ids[:, -num_logits_to_keep:]):
-                    log_probs = logits_row.log_softmax(dim=-1)
-                    token_log_prob = torch.gather(log_probs, dim=1, index=input_ids_row.unsqueeze(1)).squeeze(1)
-                    per_token_logps.append(token_log_prob)
-                return torch.stack(per_token_logps)
-
             num_logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
-            per_token_logps = get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(device)
+            per_token_logps = self.get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(device)
 
             with torch.inference_mode():
                 if self.ref_model is not None:
-                    ref_per_token_logps = get_per_token_logps(
+                    ref_per_token_logps = self.get_per_token_logps(
                         self.ref_model, prompt_completion_ids, num_logits_to_keep
                     ).to(device)
                 else:
                     with self.accelerator.unwrap_model(model).disable_adapter():
-                        ref_per_token_logps = get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(
+                        ref_per_token_logps = self.get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(
                             device
                         )
 
@@ -694,9 +696,9 @@ class GRPOTrainer(GRPOTrainer):
 
             mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
             self._metrics["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
-            print("LOSS", loss)
+            # print("LOSS", loss)
             return loss
         else:
-            logResponse({f"Iteration: {self.iteration}": []}, self.logfile)
+            log_response({f"Iteration: {self.iteration}": []}, self.logfile)
             self.iteration += 1
             return None

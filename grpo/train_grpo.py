@@ -157,7 +157,7 @@ def main(params):
 
     training_args = GRPOConfig(
         output_dir="GRPO",
-        logging_steps=5,
+        logging_steps=1,
         fp16=False,
         bf16=True,
         learning_rate=params["learning_rate"],
