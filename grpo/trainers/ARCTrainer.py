@@ -205,7 +205,7 @@ class GRPOTrainer(GRPOTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         
         if not self.continue_training:  # TODO: Use EarlyStoppingCallback
-            return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
+            return torch.tensor(0.0, dtype=torch.float32, device=self.args.device, requires_grad=True)
 
         # Evaluate validation after every epoch
         if self.iteration % self.args.gradient_accumulation_steps == 0:
@@ -213,7 +213,7 @@ class GRPOTrainer(GRPOTrainer):
             # if scores.count(0) >= 4:
             if scores.count(1.) > 0:  # Number of solved instances
                 self.continue_training = False
-                return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
+                return torch.tensor(0.0, dtype=torch.float32, device=self.args.device, requires_grad=True)
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
 
