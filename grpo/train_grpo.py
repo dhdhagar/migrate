@@ -7,7 +7,7 @@ import json
 import torch
 from trl import GRPOConfig
 
-from grpo.arc_utils.utils import parse_response
+from arc_utils.utils import parse_response
 # from GRPOTrainer import GRPOTrainer
 from trainers.ARCTrainer import GRPOTrainer
 import prompts as prompts_getter
