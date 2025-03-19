@@ -77,7 +77,7 @@ class GRPOTrainer(GRPOTrainer):
             task,
             arc_dataset_file,
             validation_example,
-            decoding_args,
+            generation_args,
             *args,
             **kwargs,
     ):
@@ -95,9 +95,10 @@ class GRPOTrainer(GRPOTrainer):
         self.arc_leave_out_idx = None
         self.arc_past_guesses = {}
         self.arc_dataset_file = arc_dataset_file
-
-        # Initialize validation
         self.validation_example = validation_example
+
+        self.generation_args = generation_args
+
         self.continue_training = True
 
     # Compute black-box score
@@ -132,6 +133,7 @@ class GRPOTrainer(GRPOTrainer):
                 input_ids=prompt_ids,
                 attention_mask=prompt_mask,
                 generation_config=self.generation_config,
+                **self.generation_args
             )
 
         related_completions = self.processing_class.decode(
@@ -158,6 +160,7 @@ class GRPOTrainer(GRPOTrainer):
                 # num_return_sequences=5,
                 # temperature=0.3,
                 do_sample=False,
+                **self.generation_args
             )
             prompt_length = prompt_inputs["input_ids"].size(1)
             completions = self.processing_class.batch_decode(
@@ -304,7 +307,8 @@ class GRPOTrainer(GRPOTrainer):
             # Generate completions using vLLM: gather all prompts and use them in a single call in the main process
             all_prompts_text = gather_object(prompts_text)
             if self.accelerator.is_main_process:
-                outputs = self.llm.generate(all_prompts_text, sampling_params=self.sampling_params, use_tqdm=False)
+                outputs = self.llm.generate(all_prompts_text, sampling_params=self.sampling_params, use_tqdm=False,
+                                            **self.generation_args)
                 completion_ids = [out.token_ids for completions in outputs for out in completions.outputs]
             else:
                 completion_ids = [None] * len(all_prompts_text) * self.num_generations
@@ -338,6 +342,7 @@ class GRPOTrainer(GRPOTrainer):
                             attention_mask=prompt_inputs["attention_mask"].to(device),
                             generation_config=self.generation_config,
                             num_return_sequences=self.n_reps,
+                            **self.generation_args
                         )
                         prompt_length = prompt_inputs["input_ids"].size(1)
                         completions = self.processing_class.batch_decode(

@@ -43,7 +43,7 @@ def parse_arguments():
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--grad_acc_steps", type=int)
     parser.add_argument("--num_generations", type=int, default=1)
-    parser.add_argument("--online_temperature", type=float, default=0.9)
+    parser.add_argument("--online_temperature", type=float, default=1.0)
     parser.add_argument("--online_max_completion_length", type=int, default=512)
     parser.add_argument("--beta", type=float, default=0.0)
     parser.add_argument("--lora_rank", type=int, default=128)
@@ -186,6 +186,7 @@ def main(params):
         sample_related=params["related"],
         task=params["task"],
         arc_dataset_file=params["arc_dataset_file"],
+        generation_args={}
     )
     start_time = time.time()
 
