@@ -85,9 +85,12 @@ class ARC:
     Now apply the transformation to the provided test case."""
 
 
-def get_arc_prompt(task_id, arc_dataset_file, readable_prompt=True, all_combinations=False, batches_n=4):
+def get_arc_prompt(task_id, arc_dataset_file, arc_dataset_solution_file,
+                   readable_prompt=True, all_combinations=False, batches_n=4):
     with open(arc_dataset_file, "r", encoding="utf-8") as handle:
         data = json.load(handle)
+    with open(arc_dataset_solution_file, "r", encoding="utf-8") as handle:
+        data_solutions = json.load(handle)
     training_examples = data[task_id]["train"][1:]  # Leave first example out for validation
     validation_example = data[task_id]["train"][0]
 
@@ -161,6 +164,7 @@ def get_arc_prompt(task_id, arc_dataset_file, readable_prompt=True, all_combinat
 
     # Create test example
     test_example = data[task_id]["test"][0]
+    test_solution = data_solutions[task_id][0]
     context_str = ""
     for example in data[task_id]["train"]:
         input_str = str(np.array(example["input"])).replace(",", "") if readable_prompt \
@@ -178,7 +182,7 @@ def get_arc_prompt(task_id, arc_dataset_file, readable_prompt=True, all_combinat
         },
         {"content": f"{test_input_str} -> ", "role": "user"},
     ]
-    test_example = {"prompt": test_prompt, "solution": np.array(test_example["output"])}
+    test_example = {"prompt": test_prompt, "solution": np.array(test_solution)}
 
     return training_dataset, validation_example, test_example
 
