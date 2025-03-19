@@ -157,7 +157,7 @@ def get_arc_prompt(task_id, arc_dataset_file, readable_prompt=True, all_combinat
         },
         {"content": f"{valid_input_str} -> ", "role": "user"},
     ]
-    validation_example = {"prompt": validation_prompt, "solution": np.array(validation_example[0]["output"])}
+    validation_example = {"prompt": validation_prompt, "solution": np.array(validation_example["output"])}
 
     # Create test example
     test_example = data[task_id]["test"][0]
