@@ -130,7 +130,7 @@ def get_arc_prompt(task_id, arc_dataset_file, arc_dataset_solution_file,
                     {"content": system_prompt, "role": "system"},
                     {"content": f"{leave_out_str} -> ", "role": "user"},
                 ]
-                batch.append({"prompt": prompt, "leave_out_idx": j, "solution": leave_out_output})  # earlier: j + 1
+                batch.append({"prompt": prompt, "leave_out_idx": j + 1, "solution": leave_out_output})  # earlier: j + 1
         random.shuffle(batch)
         batches.append(batch)
 
