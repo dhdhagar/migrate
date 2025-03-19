@@ -186,75 +186,6 @@ class GRPOTrainer(GRPOTrainer):
                 json.dump(data, file, indent=4)
         return scores
 
-    def training_step(
-            self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
-    ) -> torch.Tensor:
-
-        if not self.continue_training:  # TODO: Why do we need this?
-            return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
-
-        # Evaluate validation after every epoch
-        if self.iteration % self.args.gradient_accumulation_steps == 0:
-            scores = self.run_validation(model)
-            # if scores.count(0) >= 4:
-            if scores.count(1.) > 0:  # Number of solved instances
-                self.continue_training = False
-                return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
-
-        model.train()
-
-        if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
-            self.optimizer.train()
-
-        inputs = self._prepare_inputs(inputs)
-        if is_sagemaker_mp_enabled():
-            loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
-            return loss_mb.reduce_mean().detach().to(self.args.device)
-
-        with self.compute_loss_context_manager():
-            loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
-
-        del inputs
-        if (
-                self.args.torch_empty_cache_steps is not None
-                and self.state.global_step % self.args.torch_empty_cache_steps == 0
-        ):
-            if is_torch_xpu_available():
-                torch.xpu.empty_cache()
-            elif is_torch_mlu_available():
-                torch.mlu.empty_cache()
-            elif is_torch_musa_available():
-                torch.musa.empty_cache()
-            elif is_torch_npu_available():
-                torch.npu.empty_cache()
-            elif is_torch_mps_available(min_version="2.0"):
-                torch.mps.empty_cache()
-            else:
-                torch.cuda.empty_cache()
-
-        if loss is not None:
-            # Skip gradient step if loss is None
-            # if loss is not None:
-            kwargs = {}
-            # For LOMO optimizers you need to explicitly use the learnign rate
-            if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
-                kwargs["learning_rate"] = self._get_learning_rate()
-
-            if self.args.n_gpu > 1:
-                loss = loss.mean()  # mean() to average on multi-gpu parallel training
-
-            if self.use_apex:
-                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                self.accelerator.backward(loss, **kwargs)
-                # Finally we need to normalize the loss for reporting
-                if num_items_in_batch is None:
-                    return loss.detach() / self.args.gradient_accumulation_steps
-                return loss.detach()
-        else:
-            return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
-
     @staticmethod
     def get_per_token_logps(model, input_ids, num_logits_to_keep):
         # Get the per-token log probabilities for the completions for the model and the reference model
@@ -272,6 +203,17 @@ class GRPOTrainer(GRPOTrainer):
         return torch.stack(per_token_logps)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        
+        if not self.continue_training:  # TODO: Use EarlyStoppingCallback
+            return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
+
+        # Evaluate validation after every epoch
+        if self.iteration % self.args.gradient_accumulation_steps == 0:
+            scores = self.run_validation(model)
+            # if scores.count(0) >= 4:
+            if scores.count(1.) > 0:  # Number of solved instances
+                self.continue_training = False
+                return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
 
