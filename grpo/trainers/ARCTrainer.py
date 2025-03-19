@@ -68,16 +68,18 @@ def logChosen(response, logfile):
 
 class GRPOTrainer(GRPOTrainer):
     def __init__(
-        self,
-        target,
-        strategy,
-        n_reps,
-        logfile,
-        sample_related,
-        task,
-        arc_dataset_file,
-        *args,
-        **kwargs,
+            self,
+            target,
+            strategy,
+            n_reps,
+            logfile,
+            sample_related,
+            task,
+            arc_dataset_file,
+            validation_example,
+            decoding_args,
+            *args,
+            **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.iteration = 0
@@ -95,26 +97,7 @@ class GRPOTrainer(GRPOTrainer):
         self.arc_dataset_file = arc_dataset_file
 
         # Initialize validation
-        with open(self.arc_dataset_file, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        examples = data[self.target]["train"]
-        context_str = ""
-        for example in examples[1:]:
-            input_str = str(np.array(example["input"])).replace(",", "")
-            output_str = str(np.array(example["output"])).replace(",", "")
-            context_str += f"{input_str} -> {output_str}#\n"
-
-        valid_input_str = str(np.array(examples[0]["input"])).replace(",", "")
-        validation_prompt = [
-            {
-                "content": "Figure out the underlying transformation in the following examples and apply it to the test case. "
-                "Here are some examples from this transformation, your answer must follow the format. Respond with only the output grid.\nThe input-output grids "
-                f"are provided as python arrays:\n{context_str}",
-                "role": "system",
-            },
-            {"content": f"{valid_input_str} -> ", "role": "user"},
-        ]
-        self.validation_example = {"prompt": validation_prompt, "solution": np.array(examples[0]["output"])}
+        self.validation_example = validation_example
         self.continue_training = True
 
     # Compute black-box score
@@ -135,7 +118,6 @@ class GRPOTrainer(GRPOTrainer):
     # Neighborhood sampling
     # TODO: Add support for ARC
     def sample_related_completions(self, model, chosen_completion, n):
-        inputs = None
         inputs = {"prompt": prompts_getter.get_semantle_related_prompt(n, str(chosen_completion))}
         inputs = [maybe_apply_chat_template(inputs, self.processing_class)["prompt"]]
         prompt_inputs = self.processing_class(
@@ -153,7 +135,7 @@ class GRPOTrainer(GRPOTrainer):
             )
 
         related_completions = self.processing_class.decode(
-            completion_ids[0, prompt_ids.size(1) :], skip_special_tokens=True
+            completion_ids[0, prompt_ids.size(1):], skip_special_tokens=True
         )
         try:
             related_completions = json.loads(related_completions)["response"]
@@ -161,56 +143,61 @@ class GRPOTrainer(GRPOTrainer):
         except Exception as _:
             return None
 
+    def run_validation(self, model: nn.Module):
+        model.eval()
+        with torch.no_grad():
+            prompts_text = [maybe_apply_chat_template(self.validation_example, self.processing_class)["prompt"]]
+            prompt_inputs = self.processing_class(
+                prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
+            )
+            prompt_inputs = super()._prepare_inputs(prompt_inputs)
+            completion_ids = model.generate(
+                input_ids=prompt_inputs["input_ids"].to(self.args.device),
+                attention_mask=prompt_inputs["attention_mask"].to(self.args.device),
+                max_new_tokens=512,
+                # num_return_sequences=5,
+                # temperature=0.3,
+                do_sample=False,
+            )
+            prompt_length = prompt_inputs["input_ids"].size(1)
+            completions = self.processing_class.batch_decode(
+                completion_ids[:, prompt_length:], skip_special_tokens=True
+            )
+            attempts = [arc_utils.parse_response(x) for x in completions]
+            del completion_ids
+            del prompt_inputs
+            scores = []
+            for attempt in attempts:
+                if len(attempt) > 0:
+                    scores.append(arc_utils.hamming_distance(self.validation_example["solution"], attempt))
+                else:
+                    scores.append(1)
+
+            print("VALIDATION HAMMING", scores)
+            with open(self.logfile, "r") as file:
+                data = json.load(file)
+                data["Validation"].append(list(zip([str(x) for x in attempts], scores)))
+            with open(self.logfile, "w") as file:
+                json.dump(data, file, indent=4)
+        return scores
+
     def training_step(
-        self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
+            self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
     ) -> torch.Tensor:
 
-        if not self.continue_training:
+        if not self.continue_training:  # TODO: Why do we need this?
             return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
 
         # Evaluate validation after every epoch
         if self.iteration % self.args.gradient_accumulation_steps == 0:
-            with torch.no_grad():
-                prompts_text = [maybe_apply_chat_template(self.validation_example, self.processing_class)["prompt"]]
-                prompt_inputs = self.processing_class(
-                    prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
-                )
-                prompt_inputs = super()._prepare_inputs(prompt_inputs)
-                completion_ids = model.generate(
-                    input_ids=prompt_inputs["input_ids"].to(self.args.device),
-                    attention_mask=prompt_inputs["attention_mask"].to(self.args.device),
-                    max_new_tokens=512,
-                    # temperature=0.3,
-                    # num_return_sequences=5,
-                    do_sample=False,
-                )
-                prompt_length = prompt_inputs["input_ids"].size(1)
-                completions = self.processing_class.batch_decode(
-                    completion_ids[:, prompt_length:], skip_special_tokens=True
-                )
-                attempts = [arc_utils.parse_response(x) for x in completions]
-                del completion_ids
-                del prompt_inputs
-                scores = []
-                for attempt in attempts:
-                    if len(attempt) > 0:
-                        scores.append(arc_utils.hamming_distance(self.validation_example["solution"], attempt))
-                    else:
-                        scores.append(1)
-
-                print("VALIDATION HAMMING", scores)
-                with open(self.logfile, "r") as file:
-                    data = json.load(file)
-                    data["Validation"].append(list(zip([str(x) for x in attempts], scores)))
-                with open(self.logfile, "w") as file:
-                    json.dump(data, file, indent=4)
-
-                # if scores.count(0) >= 4:
-                if scores.count(0) > 0:
-                    self.continue_training = False
-                    return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
+            scores = self.run_validation(model)
+            # if scores.count(0) >= 4:
+            if scores.count(0) > 0:
+                self.continue_training = False
+                return torch.tensor(0.0, dtype=torch.float32, device=self.args.device).detach()
 
         model.train()
+
         if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
             self.optimizer.train()
 
@@ -224,8 +211,8 @@ class GRPOTrainer(GRPOTrainer):
 
         del inputs
         if (
-            self.args.torch_empty_cache_steps is not None
-            and self.state.global_step % self.args.torch_empty_cache_steps == 0
+                self.args.torch_empty_cache_steps is not None
+                and self.state.global_step % self.args.torch_empty_cache_steps == 0
         ):
             if is_torch_xpu_available():
                 torch.xpu.empty_cache()
@@ -268,24 +255,25 @@ class GRPOTrainer(GRPOTrainer):
             raise ValueError("The GRPOTrainer does not support returning outputs")
 
         device = self.accelerator.device
-        prompts = [x["prompt"] for x in inputs]
 
+        prompts = [x["prompt"] for x in inputs]
         # Get solution for current prompt
         with open(self.arc_dataset_file, "r", encoding="utf-8") as file:
             data = json.load(file)
-        leave_out_idx = inputs[0]["leave_out_idx"]
-        self.arc_leave_out_idx = leave_out_idx
-        leave_out = data[self.target]["train"][leave_out_idx]
-        self.arc_sol = np.array(leave_out["output"])
-        print("LEAVE OUT IDX:", leave_out_idx)
+        self.arc_leave_out_idx = inputs[0]["leave_out_idx"]
+        self.arc_sol = np.array(inputs[0]["solution"])
+        leave_out = data[self.target]["train"][self.arc_leave_out_idx]
+        # self.arc_sol = np.array(leave_out["output"])
+        assert np.array_equal(self.arc_sol, np.array(leave_out["output"]))
+        print("LEAVE OUT IDX:", self.arc_leave_out_idx)
         print("GOLD SOLUTION\n", self.arc_sol)
 
         # Load/initialize past guesses according to leave-out
-        if leave_out_idx in self.arc_past_guesses:
-            self.past_guesses = self.arc_past_guesses[leave_out_idx]
+        if self.arc_leave_out_idx in self.arc_past_guesses:
+            self.past_guesses = self.arc_past_guesses[self.arc_leave_out_idx]
         else:
             self.past_guesses = {}
-            self.arc_past_guesses[leave_out_idx] = self.past_guesses
+            self.arc_past_guesses[self.arc_leave_out_idx] = self.past_guesses
         # Training-Oracle: Add the gold solution to the past guesses (greedy_single will select this as chosen)
         sol_str = str(self.arc_sol)
         self.past_guesses[sol_str] = 1.0  # Black-box score of 1
@@ -297,8 +285,8 @@ class GRPOTrainer(GRPOTrainer):
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
 
         if self.max_prompt_length is not None:
-            prompt_inputs["input_ids"] = prompt_inputs["input_ids"][:, -self.max_prompt_length :]
-            prompt_inputs["attention_mask"] = prompt_inputs["attention_mask"][:, -self.max_prompt_length :]
+            prompt_inputs["input_ids"] = prompt_inputs["input_ids"][:, -self.max_prompt_length:]
+            prompt_inputs["attention_mask"] = prompt_inputs["attention_mask"][:, -self.max_prompt_length:]
 
         valid_completion = False  # flag for tracking if valid completions is generated and loss is computed
         # Generate completions using either vLLM or regular generation
@@ -393,7 +381,7 @@ class GRPOTrainer(GRPOTrainer):
                         scores = list(itertools.chain.from_iterable(bb_scores))
                         word_scores = [[word, score] for word, score in zip(completions, scores)]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         completions = [[x[0][0], x[1][0]] for x in word_scores]
                         rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
                     elif self.strategy == "Online_Batch_Max":
@@ -401,7 +389,7 @@ class GRPOTrainer(GRPOTrainer):
                         scores = list(itertools.chain.from_iterable(bb_scores))
                         word_scores = [[word, score] for word, score in zip(completions, scores)]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         completions = [[x[0][0], x[1][0]] for x in word_scores]
                         rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
                     elif self.strategy == "Greedy_Single":
@@ -418,7 +406,7 @@ class GRPOTrainer(GRPOTrainer):
                         scores = list(itertools.chain.from_iterable(bb_scores))
                         word_scores = [[word, score] for word, score in zip(completions, scores)]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         # Substitute a random guess batch with the best guess batch so far
                         if len(self.past_guesses) > 0:
                             best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[:2]
@@ -431,7 +419,7 @@ class GRPOTrainer(GRPOTrainer):
                         scores = list(itertools.chain.from_iterable(bb_scores))
                         word_scores = [[word, score] for word, score in zip(completions, scores)]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         # Substitute a random guess batch with the best guess batch so far
                         if len(self.past_guesses) > 0:
                             best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[:2]
@@ -452,7 +440,7 @@ class GRPOTrainer(GRPOTrainer):
                             past_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
                             word_scores = word_scores + past_guesses[:2] + past_guesses[-2:]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         completions = [[x[0][0], x[1][0]] for x in word_scores]
                         rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
                     elif self.strategy == "TopDelta_Batch_Max":
@@ -465,7 +453,7 @@ class GRPOTrainer(GRPOTrainer):
                             past_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
                             word_scores = word_scores + past_guesses[:2] + past_guesses[-2:]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         completions = [[x[0][0], x[1][0]] for x in word_scores]
                         rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
                     elif self.strategy == "Greedy_Batch_Mean_Related":
@@ -473,7 +461,7 @@ class GRPOTrainer(GRPOTrainer):
                         scores = list(itertools.chain.from_iterable(bb_scores))
                         word_scores = [[word, score] for word, score in zip(completions, scores)]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         # Substitute a random guess batch with the best guess batch so far
                         best_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
                         if len(self.past_guesses) > 0:
@@ -497,11 +485,12 @@ class GRPOTrainer(GRPOTrainer):
                             idx = random.sample(range(1, 5), 3)
                             # old_best = word_scores[0]
                             word_scores = (
-                                related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[idx[2]]
+                                    related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[
+                                idx[2]]
                             )
                             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
                             # word_scores = old_best + word_scores
-                            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                             completions = [[x[0][0], x[1][0]] for x in word_scores]
                             rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
                             print("AFTER", completions)
@@ -511,7 +500,7 @@ class GRPOTrainer(GRPOTrainer):
                         scores = list(itertools.chain.from_iterable(bb_scores))
                         word_scores = [[word, score] for word, score in zip(completions, scores)]
                         word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                        word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                        word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                         # Substitute a random guess batch with the best guess batch so far
                         best_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
                         if len(self.past_guesses) > 0:
@@ -535,11 +524,12 @@ class GRPOTrainer(GRPOTrainer):
                             idx = random.sample(range(1, 5), 3)
                             # old_best = word_scores[0]
                             word_scores = (
-                                related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[idx[2]]
+                                    related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[
+                                idx[2]]
                             )
                             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
                             # word_scores = old_best + word_scores
-                            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                             completions = [[x[0][0], x[1][0]] for x in word_scores]
                             rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
                             print("AFTER", completions)
@@ -620,7 +610,7 @@ class GRPOTrainer(GRPOTrainer):
 
             # Compute the KL divergence between the model and the reference model
             per_token_kl = (
-                torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
+                    torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
             )
 
             # Mask everything after the first EOS token
@@ -642,7 +632,7 @@ class GRPOTrainer(GRPOTrainer):
             self.reward_funcs = [self.reward_funcs[0]] * num_reward_funcs
             rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
             for i, (reward_func, reward_processing_class) in enumerate(
-                zip(self.reward_funcs, self.reward_processing_classes)
+                    zip(self.reward_funcs, self.reward_processing_classes)
             ):
                 if isinstance(reward_func, PreTrainedModel):
                     if is_conversational(inputs[0]):
