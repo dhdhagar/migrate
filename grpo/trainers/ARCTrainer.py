@@ -260,17 +260,8 @@ class GRPOTrainer(GRPOTrainer):
         device = self.accelerator.device
 
         prompts = [x["prompt"] for x in inputs]
-        # Get solution for current prompt
-        with open(self.arc_dataset_file, "r", encoding="utf-8") as file:
-            data = json.load(file)
         self.arc_leave_out_idx = inputs[0]["leave_out_idx"]
         self.arc_sol = np.array(inputs[0]["solution"])
-        leave_out = data[self.target]["train"][self.arc_leave_out_idx]
-        # self.arc_sol = np.array(leave_out["output"])
-        try:
-            assert np.array_equal(self.arc_sol, np.array(leave_out["output"]))
-        except:
-            breakpoint()
         print("LEAVE OUT IDX:", self.arc_leave_out_idx)
         print("GOLD SOLUTION\n", self.arc_sol)
 

@@ -221,7 +221,7 @@ def main(params):
             data = json.load(file)
         decoded_greedy = tokenizer.batch_decode(output0, skip_special_tokens=True)
         decoded_sample = tokenizer.batch_decode(output, skip_special_tokens=True)
-        final_samples = [parse_response(decoded_greedy + decoded_sample)]
+        final_samples = [parse_response(s) for s in decoded_greedy + decoded_sample]
         final_scores = [trainer.get_bb_score(sample, solution) for sample in final_samples]
         data["final_sample"] = decoded_greedy + decoded_sample
         data["final_score"] = final_scores

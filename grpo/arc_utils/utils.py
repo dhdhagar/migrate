@@ -16,6 +16,7 @@ def parse_response(output: str) -> np.ndarray:
     """
 
     # Find instances of the start and end of an ARC grid
+
     start_idx = [match.start() for match in re.finditer(r"\[\[", output)]
     end_idx = [match.start() for match in re.finditer(r"\]\]", output)]
     if len(start_idx) > 0 and len(end_idx) > 0:
