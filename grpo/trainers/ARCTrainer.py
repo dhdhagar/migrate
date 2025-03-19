@@ -245,7 +245,6 @@ class GRPOTrainer(GRPOTrainer):
             prompt_inputs["input_ids"] = prompt_inputs["input_ids"][:, -self.max_prompt_length:]
             prompt_inputs["attention_mask"] = prompt_inputs["attention_mask"][:, -self.max_prompt_length:]
 
-        valid_completion = False  # flag for tracking if valid completions is generated and loss is computed
         # Generate completions using either vLLM or regular generation
         # TODO: Make this support unsloth to use vLLM
         if self.args.use_vllm:
@@ -285,8 +284,8 @@ class GRPOTrainer(GRPOTrainer):
             # Regular generation path
             try:
                 with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
-                    # while not valid_completion and retries < 1:
                     responses = []
+                    invalid_responses = []
                     bb_scores = []
                     retries = 0
                     # Keep generating `retries` times until we have `self.n_reps` valid responses
@@ -309,7 +308,7 @@ class GRPOTrainer(GRPOTrainer):
                                 bb_scores.append(scores)
                                 responses.append([str(x) for x in guesses])
                             except Exception as _:
-                                pass
+                                invalid_responses.append(completion)
                             if len(responses) == self.n_reps:
                                 break
                         retries += 1
@@ -527,120 +526,134 @@ class GRPOTrainer(GRPOTrainer):
                     prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1).to(device)
 
                     self.num_generations = len(completions)
-                    valid_completion = True
                     self.iteration += 1
             except Exception as _:
-                pass
+                # Add gold solution
+                invalid_responses.append(str(self.arc_sol))
+
+                # Create rewards for invalid responses + gold solution
+                rewards  = [0.0] * len(invalid_responses)
+                rewards[-1] = 1.0
+                
+                prompt = {"prompt": prompts[0]}
+                prompt_text = [maybe_apply_chat_template(prompt, self.processing_class)["prompt"]]
+                prompt_inputs = self.processing_class(prompt_text, return_tensors="pt", add_special_tokens=False)
+                completion_ids = self.processing_class(
+                    invalid_responses, return_tensors="pt", add_special_tokens=False, padding=True
+                ).input_ids
+                prompt_inputs_repeated = torch.repeat_interleave(
+                    prompt_inputs["input_ids"], len(completion_ids), dim=0
+                )
+                prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1).to(device)
+                
+                log_response({f"Iteration: {self.iteration}": [], "leave_out_idx": self.arc_leave_out_idx}, self.logfile)
+                self.num_generations = len(invalid_responses)
+                self.iteration += 1
 
         # Only compute loss if completion was valid and there are more than 1 completion in the group
-        if valid_completion and self.num_generations > 1:
-            prompt_length = prompt_inputs["input_ids"].size(1)
-            completion_ids = prompt_completion_ids[:, prompt_length:]
+        prompt_length = prompt_inputs["input_ids"].size(1)
+        completion_ids = prompt_completion_ids[:, prompt_length:]
 
-            num_logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
-            per_token_logps = self.get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(device)
+        num_logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
+        per_token_logps = self.get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(device)
 
-            with torch.inference_mode():
-                if self.ref_model is not None:
-                    ref_per_token_logps = self.get_per_token_logps(
-                        self.ref_model, prompt_completion_ids, num_logits_to_keep
-                    ).to(device)
-                else:
-                    with self.accelerator.unwrap_model(model).disable_adapter():
-                        ref_per_token_logps = self.get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(
-                            device
-                        )
-
-            # Compute the KL divergence between the model and the reference model
-            per_token_kl = (
-                    torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
-            )
-
-            # Mask everything after the first EOS token
-            is_eos = completion_ids == self.processing_class.eos_token_id
-            eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
-            eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)].to(device)
-            sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
-            completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
-
-            # Decode the generated completions
-            completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-            if is_conversational(inputs[0]):
-                completions = [[{"role": "assistant", "content": completion}] for completion in completions]
-
-            # Compute the rewards
-            prompts = [prompt for prompt in prompts for _ in range(self.num_generations)]
-
-            num_reward_funcs = len(rewards) if isinstance(rewards[0], list) else 1  # type: ignore
-            self.reward_funcs = [self.reward_funcs[0]] * num_reward_funcs
-            rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
-            for i, (reward_func, reward_processing_class) in enumerate(
-                    zip(self.reward_funcs, self.reward_processing_classes)
-            ):
-                if isinstance(reward_func, PreTrainedModel):
-                    if is_conversational(inputs[0]):
-                        messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
-                        texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
-                    else:
-                        texts = [p + c for p, c in zip(prompts, completions)]
-                    reward_inputs = reward_processing_class(
-                        texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+        with torch.inference_mode():
+            if self.ref_model is not None:
+                ref_per_token_logps = self.get_per_token_logps(
+                    self.ref_model, prompt_completion_ids, num_logits_to_keep
+                ).to(device)
+            else:
+                with self.accelerator.unwrap_model(model).disable_adapter():
+                    ref_per_token_logps = self.get_per_token_logps(model, prompt_completion_ids, num_logits_to_keep).to(
+                        device
                     )
-                    reward_inputs = super()._prepare_inputs(reward_inputs)
-                    with torch.inference_mode():
-                        rewards_per_func[:, i] = reward_func(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+
+        # Compute the KL divergence between the model and the reference model
+        per_token_kl = (
+                torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
+        )
+
+        # Mask everything after the first EOS token
+        is_eos = completion_ids == self.processing_class.eos_token_id
+        eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
+        eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)].to(device)
+        sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
+        completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
+
+        # Decode the generated completions
+        completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
+        if is_conversational(inputs[0]):
+            completions = [[{"role": "assistant", "content": completion}] for completion in completions]
+
+        # Compute the rewards
+        prompts = [prompt for prompt in prompts for _ in range(self.num_generations)]
+
+        num_reward_funcs = len(rewards) if isinstance(rewards[0], list) else 1  # type: ignore
+        self.reward_funcs = [self.reward_funcs[0]] * num_reward_funcs
+        rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
+        for i, (reward_func, reward_processing_class) in enumerate(
+                zip(self.reward_funcs, self.reward_processing_classes)
+        ):
+            if isinstance(reward_func, PreTrainedModel):
+                if is_conversational(inputs[0]):
+                    messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
+                    texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
                 else:
-                    # Repeat all input columns (but "prompt" and "completion") to match the number of generations
-                    reward_kwargs = {key: [] for key in inputs[0].keys() if key not in ["prompt", "completion"]}
-                    for key in reward_kwargs:
-                        for example in inputs:
-                            # Repeat each value in the column for `num_generations` times
-                            reward_kwargs[key].extend([example[key]] * self.num_generations)
-                    # output_reward_func = reward_func(prompts=prompts, completions=completions, **reward_kwargs)
-                    if isinstance(rewards[i], list):  # type: ignore
-                        output_reward_func = rewards[i]  # type: ignore
-                    else:
-                        output_reward_func = rewards  # type: ignore
-                    rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
-
-            # Sum the rewards from all reward functions
-            rewards = rewards_per_func.sum(dim=1)
-
-            # Compute grouped-wise rewards
-            mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
-            std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
-
-            # Normalize the rewards to compute the advantages
-            mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
-            std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
-            advantages = (rewards - mean_grouped_rewards) / (std_grouped_rewards + 1e-4)
-
-            # x - x.detach() allows for preserving gradients from x
-            per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages.unsqueeze(1)
-            per_token_loss = -(per_token_loss - self.beta * per_token_kl)
-            loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-
-            # Log the metrics
-            completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
-            self._metrics["completion_length"].append(completion_length)
-
-            reward_per_func = self.accelerator.gather_for_metrics(rewards_per_func).mean(0)
-            for i, reward_func in enumerate(self.reward_funcs):
-                if isinstance(reward_func, PreTrainedModel):
-                    reward_func_name = reward_func.config._name_or_path.split("/")[-1]
+                    texts = [p + c for p, c in zip(prompts, completions)]
+                reward_inputs = reward_processing_class(
+                    texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+                )
+                reward_inputs = super()._prepare_inputs(reward_inputs)
+                with torch.inference_mode():
+                    rewards_per_func[:, i] = reward_func(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+            else:
+                # Repeat all input columns (but "prompt" and "completion") to match the number of generations
+                reward_kwargs = {key: [] for key in inputs[0].keys() if key not in ["prompt", "completion"]}
+                for key in reward_kwargs:
+                    for example in inputs:
+                        # Repeat each value in the column for `num_generations` times
+                        reward_kwargs[key].extend([example[key]] * self.num_generations)
+                # output_reward_func = reward_func(prompts=prompts, completions=completions, **reward_kwargs)
+                if isinstance(rewards[i], list):  # type: ignore
+                    output_reward_func = rewards[i]  # type: ignore
                 else:
-                    reward_func_name = reward_func.__name__
-                self._metrics[f"rewards/{reward_func_name}"].append(reward_per_func[i].item())
+                    output_reward_func = rewards  # type: ignore
+                rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
 
-            self._metrics["reward"].append(self.accelerator.gather_for_metrics(rewards).mean().item())
+        # Sum the rewards from all reward functions
+        rewards = rewards_per_func.sum(dim=1)
 
-            self._metrics["reward_std"].append(self.accelerator.gather_for_metrics(std_grouped_rewards).mean().item())
+        # Compute grouped-wise rewards
+        mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
+        std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
 
-            mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-            self._metrics["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
-            # print("LOSS", loss)
-            return loss
-        else:
-            log_response({f"Iteration: {self.iteration}": []}, self.logfile)
-            self.iteration += 1
-            return None
+        # Normalize the rewards to compute the advantages
+        mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
+        std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
+        advantages = (rewards - mean_grouped_rewards) / (std_grouped_rewards + 1e-4)
+
+        # x - x.detach() allows for preserving gradients from x
+        per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages.unsqueeze(1)
+        per_token_loss = -(per_token_loss - self.beta * per_token_kl)
+        loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+
+        # Log the metrics
+        completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
+        self._metrics["completion_length"].append(completion_length)
+
+        reward_per_func = self.accelerator.gather_for_metrics(rewards_per_func).mean(0)
+        for i, reward_func in enumerate(self.reward_funcs):
+            if isinstance(reward_func, PreTrainedModel):
+                reward_func_name = reward_func.config._name_or_path.split("/")[-1]
+            else:
+                reward_func_name = reward_func.__name__
+            self._metrics[f"rewards/{reward_func_name}"].append(reward_per_func[i].item())
+
+        self._metrics["reward"].append(self.accelerator.gather_for_metrics(rewards).mean().item())
+
+        self._metrics["reward_std"].append(self.accelerator.gather_for_metrics(std_grouped_rewards).mean().item())
+
+        mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+        self._metrics["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
+        print("LOSS", loss)
+        return loss
