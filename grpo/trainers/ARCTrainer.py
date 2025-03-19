@@ -267,7 +267,10 @@ class GRPOTrainer(GRPOTrainer):
         self.arc_sol = np.array(inputs[0]["solution"])
         leave_out = data[self.target]["train"][self.arc_leave_out_idx]
         # self.arc_sol = np.array(leave_out["output"])
-        assert np.array_equal(self.arc_sol, np.array(leave_out["output"]))
+        try:
+            assert np.array_equal(self.arc_sol, np.array(leave_out["output"]))
+        except:
+            breakpoint()
         print("LEAVE OUT IDX:", self.arc_leave_out_idx)
         print("GOLD SOLUTION\n", self.arc_sol)
 
