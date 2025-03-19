@@ -23,7 +23,7 @@ accelerate launch train_grpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --tar
 ## Instructions for running (ARC) experiments
 - Download the data:  
     - Ensure you have the following installed:
-      - Python (>=3.6)
+      - Python (>=3.10)
       - Kaggle API (`kaggle` package)
     - Set up Kaggle API credentials (if not already done):
       - Go to [Kaggle](https://www.kaggle.com/).
