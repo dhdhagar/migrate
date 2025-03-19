@@ -53,7 +53,7 @@ if is_apex_available():
 def logResponse(response, logfile):
     with open(logfile, "r") as file:
         data = json.load(file)
-        data["Guesses"].append(response)
+        data["guesses"].append(response)
     with open(logfile, "w") as file:
         json.dump(data, file, indent=4)
 
@@ -61,7 +61,7 @@ def logResponse(response, logfile):
 def logChosen(response, logfile):
     with open(logfile, "r") as file:
         data = json.load(file)
-        data["Chosen"].append(response)
+        data["chosen"].append(response)
     with open(logfile, "w") as file:
         json.dump(data, file, indent=4)
 
@@ -179,7 +179,7 @@ class GRPOTrainer(GRPOTrainer):
             print("VALIDATION HAMMING", scores)
             with open(self.logfile, "r") as file:
                 data = json.load(file)
-                data["Validation"].append(list(zip([str(x) for x in attempts], scores)))
+                data["validation"].append(list(zip([str(x) for x in attempts], scores)))
             with open(self.logfile, "w") as file:
                 json.dump(data, file, indent=4)
         return scores
