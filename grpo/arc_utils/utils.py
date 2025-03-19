@@ -23,7 +23,7 @@ def parse_response(output: str) -> np.ndarray:
         # Parse the last grid found in the response into a 2D array
         arr = parse_numpy_from_str(output[start_idx[-1] : end_idx[-1] + 2])
         return arr
-    return np.array([])
+    return np.array([[]])
 
 
 def parse_numpy_from_str(array_str: str) -> np.ndarray:
