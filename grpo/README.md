@@ -5,6 +5,8 @@
 conda create -n arc_grpo python=3.10
 conda activate arc_grpo 
 pip install -r requirements.txt
+
+cd grpo
 ```
 
 ## Instructions for running (semantle) experiments
@@ -19,13 +21,44 @@ accelerate launch train_grpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --tar
 ```
 
 ## Instructions for running (ARC) experiments
-```
-sh arc.sh
-```
-or 
-```
-sbatch arc_job.sh
-```
+- Download the data:  
+    - Ensure you have the following installed:
+      - Python (>=3.6)
+      - Kaggle API (`kaggle` package)
+    - Set up Kaggle API credentials (if not already done):
+      - Go to [Kaggle](https://www.kaggle.com/).
+      - Navigate to **Account Settings**.
+      - Scroll down to the **API** section and click "Create New API Token".
+      - This downloads a `kaggle.json` file.
+      - Move this file to `~/.kaggle/`.
+      - Set appropriate permissions:
+        ```bash
+        chmod 600 ~/.kaggle/kaggle.json
+        ```
+    - Download the dataset:
+       ```bash
+       kaggle competitions download -c arc-prize-2024 -p ./kaggle/input/arc-prize-2024
+       ```
+    - Unzip the dataset:
+       ```bash
+       unzip ./kaggle/input/arc-prize-2024/arc-prize-2024.zip -d ./kaggle/input/arc-prize-2024/
+       rm arc-prize-2024.zip
+       ```
+
+- Load model cache:
+    ```
+    export HF_HOME="/work/pi_mccallum_umass_edu/pkphan_umass_edu/pkphan/hf_cache"
+    export HF_HUB_CACHE="/work/pi_mccallum_umass_edu/pkphan_umass_edu/pkphan/hf_cache/hub"
+    ```
+
+- Command to execute experiments:
+    ```
+    sh arc.sh
+    ```
+    or 
+    ```
+    sbatch arc_job.sh
+    ```
 
 ### Arguments
 
