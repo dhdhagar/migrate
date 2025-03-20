@@ -60,6 +60,7 @@ def parse_arguments():
     parser.add_argument("--save_model", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--all_combinations", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--minimum_training_size", type=int, default=50)
     args = parser.parse_args()
     return args
 
@@ -73,6 +74,7 @@ def create_dataset(params):
     else:
         return prompts_getter.get_arc_datasets(params["target"], params["arc_dataset_file"],
                                              params["arc_dataset_solutions_file"],
+                                             minimum_training_size=params["minimum_training_size"],
                                              do_permutation=params["all_combinations"])
 
 
