@@ -92,7 +92,7 @@ class GRPOTrainer(GRPOTrainer):
         self.task = task
 
         self.arc_sol = None
-        self.arc_leave_out_idx = None
+        self.arc_leave_out = None
         self.arc_past_guesses = {}
         self.arc_dataset_file = arc_dataset_file
         self.validation_example = validation_example
@@ -116,7 +116,7 @@ class GRPOTrainer(GRPOTrainer):
         scores = list(itertools.chain.from_iterable(bb_scores))
         for word, score in zip(guesses, scores):
             self.past_guesses[word] = score
-        self.arc_past_guesses[self.arc_leave_out_idx] = self.past_guesses.copy()
+        self.arc_past_guesses[self.arc_leave_out] = self.past_guesses.copy()
 
     # Neighborhood sampling
     # TODO: Add support for ARC
@@ -220,17 +220,17 @@ class GRPOTrainer(GRPOTrainer):
         device = self.accelerator.device
 
         prompts = [x["prompt"] for x in inputs]
-        self.arc_leave_out_idx = inputs[0]["leave_out_idx"]
+        self.arc_leave_out = str(inputs[0]["solution"])
         self.arc_sol = np.array(inputs[0]["solution"])
-        # print("LEAVE OUT IDX:", self.arc_leave_out_idx)
+        # print("LEAVE OUT IDX:", self.arc_leave_out)
         # print("GOLD SOLUTION\n", self.arc_sol)
 
         # Load/initialize past guesses according to leave-out
-        if self.arc_leave_out_idx in self.arc_past_guesses:
-            self.past_guesses = self.arc_past_guesses[self.arc_leave_out_idx]
+        if self.arc_leave_out in self.arc_past_guesses:
+            self.past_guesses = self.arc_past_guesses[self.arc_leave_out]
         else:
             self.past_guesses = {}
-            self.arc_past_guesses[self.arc_leave_out_idx] = self.past_guesses
+            self.arc_past_guesses[self.arc_leave_out] = self.past_guesses
         # Training-Oracle: Add the gold solution to the past guesses (greedy_single will select this as chosen)
         sol_str = str(self.arc_sol)
         self.past_guesses[sol_str] = 1.0  # Black-box score of 1
@@ -508,7 +508,7 @@ class GRPOTrainer(GRPOTrainer):
                                     list(itertools.chain.from_iterable(bb_scores)),
                                 )
                             ],
-                            "leave_out_idx": self.arc_leave_out_idx,  # Record for tracing trajectory in post
+                            "solution": self.arc_leave_out,  # Record for tracing trajectory in post
                         },
                         self.logfile,
                     )
@@ -546,7 +546,7 @@ class GRPOTrainer(GRPOTrainer):
                 )
                 prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1).to(device)
                 
-                log_response({f"Iteration: {self.iteration}": [], "leave_out_idx": self.arc_leave_out_idx}, self.logfile)
+                log_response({f"Iteration: {self.iteration}": [], "leave_out": self.arc_leave_out}, self.logfile)
                 self.num_generations = len(invalid_responses)
                 self.iteration += 1
 

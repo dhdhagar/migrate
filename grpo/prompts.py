@@ -142,7 +142,7 @@ def get_arc_datasets(task_id, arc_dataset_file, arc_dataset_solution_file, minim
     for i, leave_out in enumerate(training_examples):
         leave_out_input = str(np.array(leave_out['input']))
         possible_context_examples = training_examples[:i] + training_examples[i+1:]
-        dataset = create_arc_prompts(possible_context_examples, leave_out_input)
+        dataset = create_arc_prompts(possible_context_examples, leave_out_input, do_permutation)
         dataset = [{"prompt": x, "solution": np.array(leave_out['output'])} for x in dataset]
         training_dataset += dataset
     # Multiply the dataset until it's longer than the minimum length
@@ -159,7 +159,7 @@ def get_arc_datasets(task_id, arc_dataset_file, arc_dataset_solution_file, minim
 
     dataset = create_arc_prompts(training_examples, validation_example['input'])
     print("Validation dataset size", len(dataset))
-    validation_dataset = {"dataset": dataset, "solution": validation_example['output']}
+    validation_dataset = {"dataset": dataset, "solution": np.array(validation_example['output'])}
 
     return training_dataset, validation_dataset, test_dataset
 

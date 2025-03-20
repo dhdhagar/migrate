@@ -71,10 +71,9 @@ def create_dataset(params):
             for _ in range(params["steps"])
         ]
     else:
-        return prompts_getter.get_arc_prompt(params["target"], params["arc_dataset_file"],
+        return prompts_getter.get_arc_datasets(params["target"], params["arc_dataset_file"],
                                              params["arc_dataset_solutions_file"],
-                                             readable_prompt=params["readable_prompt"],
-                                             all_combinations=params["all_combinations"])
+                                             do_permutation=params["all_combinations"])
 
 
 def setup_logging(params):
@@ -145,7 +144,7 @@ def reward_len(completions, **kwargs):
 
 
 def main(params):
-    dataset, validation_example, test_example = create_dataset(params)
+    training_dataset, validation_dataset, test_dataset = create_dataset(params)
     # dataset = [dataset[0].copy() for i in range(100)]
     if params["task"] == "arc":
         params["batch_size"] = 1  # len(dataset)
@@ -162,7 +161,7 @@ def main(params):
         bf16=True,
         learning_rate=params["learning_rate"],
         per_device_train_batch_size=params["batch_size"],
-        gradient_accumulation_steps=len(dataset) if params["grad_acc_steps"] is None else params["grad_acc_steps"],
+        gradient_accumulation_steps=len(training_dataset) if params["grad_acc_steps"] is None else params["grad_acc_steps"],
         num_train_epochs=params["num_train_epochs"],
         temperature=params["online_temperature"],
         num_generations=params["num_generations"],
@@ -177,8 +176,8 @@ def main(params):
         # peft_config=peft_config, # no need with unsloth
         reward_funcs=reward_len,  # Placeholder reward func
         args=training_args,
-        train_dataset=dataset,
-        validation_example=validation_example,
+        train_dataset=training_dataset,
+        validation_example={"prompt": validation_dataset['dataset'][-1], "solution": validation_dataset['solution']},
         logfile=logfile,
         target=params["target"],
         n_reps=params["n_reps"],
@@ -202,8 +201,8 @@ def main(params):
         json.dump(data, file, indent=2)
 
     if params["task"] == "arc":
-        prompt = test_example["prompt"]
-        solution = test_example["solution"]
+        prompt = test_dataset['dataset'][-1]
+        solution = test_dataset["solution"]
 
         inputs = tokenizer.apply_chat_template([prompt], tokenize=True, return_tensors="pt").to(DEVICE)
         attention_mask = (inputs != tokenizer.pad_token_id).long()
@@ -222,7 +221,7 @@ def main(params):
         decoded_greedy = tokenizer.batch_decode(output0, skip_special_tokens=True)
         decoded_sample = tokenizer.batch_decode(output, skip_special_tokens=True)
         final_samples = [parse_response(s) for s in decoded_greedy + decoded_sample]
-        final_scores = [trainer.get_bb_score(np.array(solution), sample) for sample in final_samples]
+        final_scores = [trainer.get_bb_score(solution, sample) for sample in final_samples]
         data["final_sample"] = decoded_greedy + decoded_sample
         data["final_score"] = final_scores
         with open(logfile, "w") as file:
