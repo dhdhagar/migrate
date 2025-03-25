@@ -112,7 +112,14 @@ def create_arc_prompts(possible_context_examples, user_input, do_permutation=Tru
     return dataset
 
 
-def get_arc_datasets(task_id, arc_dataset_file, arc_dataset_solution_file, minimum_training_size=50, do_permutation=False):
+def get_arc_datasets(
+    task_id,
+    arc_dataset_file,
+    arc_dataset_solution_file,
+    minimum_training_size=50,
+    maximum_training_size=80,
+    do_permutation=False,
+):
     """
     Create ARC training, validation, and testing prompt datasets.
 
@@ -122,7 +129,7 @@ def get_arc_datasets(task_id, arc_dataset_file, arc_dataset_solution_file, minim
     - arc_dataset_solution_file (str): Path to ARC dataset solution file
     - minimum_training_size (int): Minimum size of the training dataset
     - do_permutation (bool): Whether ordering should matter for the context examples
-      
+
 
     Returns:
     - training_dataset: A list of dictionaries with the training prompt and the corresponding training solution
@@ -133,33 +140,33 @@ def get_arc_datasets(task_id, arc_dataset_file, arc_dataset_solution_file, minim
         data = json.load(handle)
     with open(arc_dataset_solution_file, "r", encoding="utf-8") as handle:
         data_solutions = json.load(handle)
-    training_examples = data[task_id]['train'][1:]
-    validation_example = data[task_id]['train'][0]
+    training_examples = data[task_id]["train"][1:]
+    validation_example = data[task_id]["train"][0]
 
-    print("Available input-output examples", len(data[task_id]['train']))
+    print("Available input-output examples", len(data[task_id]["train"]))
 
     training_dataset = []
     for i, leave_out in enumerate(training_examples):
-        leave_out_input = str(np.array(leave_out['input']))
-        possible_context_examples = training_examples[:i] + training_examples[i+1:]
+        leave_out_input = str(np.array(leave_out["input"]))
+        possible_context_examples = training_examples[:i] + training_examples[i + 1 :]
         dataset = create_arc_prompts(possible_context_examples, leave_out_input, do_permutation)
-        dataset = [{"prompt": x, "solution": np.array(leave_out['output'])} for x in dataset]
+        dataset = [{"prompt": x, "solution": np.array(leave_out["output"])} for x in dataset]
         training_dataset += dataset
     # Multiply the dataset until it's longer than the minimum length
     print("Training dataset size", len(training_dataset))
-    dataset = training_dataset * ((minimum_training_size // len(training_dataset)) + 1)
-    random.shuffle(dataset)
+    training_dataset = training_dataset * ((minimum_training_size // len(training_dataset)) + 1)
+    random.shuffle(training_dataset)
+    training_dataset = training_dataset[:maximum_training_size]
 
-    all_training_examples = data[task_id]['train']
-    leave_out_input = str(data[task_id]['test'][0]['input'])
+    all_training_examples = data[task_id]["train"]
+    leave_out_input = str(data[task_id]["test"][0]["input"])
     test_dataset = create_arc_prompts(all_training_examples, leave_out_input)
     print("Test dataset size", len(test_dataset))
     test_dataset = {"dataset": test_dataset, "solution": np.array(data_solutions[task_id][0])}
 
-
-    dataset = create_arc_prompts(training_examples, validation_example['input'])
+    dataset = create_arc_prompts(training_examples, validation_example["input"])
     print("Validation dataset size", len(dataset))
-    validation_dataset = {"dataset": dataset, "solution": np.array(validation_example['output'])}
+    validation_dataset = {"dataset": dataset, "solution": np.array(validation_example["output"])}
 
     return training_dataset, validation_dataset, test_dataset
 
