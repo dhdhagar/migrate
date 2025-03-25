@@ -461,31 +461,6 @@ class GRPOTrainer(GRPOTrainer):
 
         self.num_generations = len(completions)
         self.iteration += 1
-        # except Exception as e:
-        #     invalid_responses = random.choices(invalid_responses, k=len(prompts) - 1)
-        #     # Add gold solution
-        #     invalid_responses.append(str(self.arc_sol))
-        #
-        #     # Create rewards for invalid responses + gold solution
-        #     rewards = [0.0] * len(invalid_responses)
-        #     rewards[-1] = 1.0
-        #
-        #     prompt = {"prompt": prompts[0]}
-        #     prompt_text = [maybe_apply_chat_template(prompt, self.processing_class)["prompt"]]
-        #     prompt_inputs = self.processing_class(prompt_text, return_tensors="pt", add_special_tokens=False)
-        #     completion_ids = self.processing_class(
-        #         invalid_responses, return_tensors="pt", add_special_tokens=False, padding=True
-        #     ).input_ids
-        #     prompt_inputs_repeated = torch.repeat_interleave(prompt_inputs["input_ids"], len(completion_ids), dim=0)
-        #     prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1).to(device)
-        #     prompt_mask = prompt_mask[0].repeat(len(invalid_responses), 1)
-        #     print("SHAPE", prompt_completion_ids.shape)
-        #     print("SHAPE", completion_ids.shape)
-        #     print("SHAPE", prompt_inputs_repeated.shape)
-        #
-        #     log_response({f"Iteration: {self.iteration}": [], "leave_out": self.arc_leave_out}, self.logfile)
-        #     self.num_generations = len(invalid_responses)
-        #     self.iteration += 1
 
         # Compute prompt length and extract completion ids
         prompt_length = prompt_ids.size(1)
