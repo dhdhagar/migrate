@@ -45,7 +45,7 @@ def parse_arguments():
     parser.add_argument("--learning_rate", type=float, default=5e-5)
     parser.add_argument("--num_train_epochs", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=5)
-    parser.add_argument("--grad_acc_steps", type=int)
+    parser.add_argument("--grad_acc_steps", type=int, default=1)
     parser.add_argument("--num_generations", type=int, default=5)
     parser.add_argument("--online_temperature", type=float, default=1.0)
     parser.add_argument("--online_max_completion_length", type=int, default=512)
