@@ -98,8 +98,8 @@ def create_arc_prompts(possible_context_examples, user_input, do_permutation=Tru
             # Build context examples
             context_str = ""
             for example in context:
-                input_str = str(np.array(example['input']))
-                output_str = str(np.array(example['output']))
+                input_str = str(np.array(example["input"]))
+                output_str = str(np.array(example["output"]))
                 context_str += f"{input_str} -> {output_str}#\n"
 
             system_prompt = ARC.system_prompt_w_context % context_str if len(context_str) > 0 else ARC.system_prompt
