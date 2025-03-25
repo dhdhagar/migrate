@@ -1,4 +1,7 @@
-from unsloth import FastLanguageModel  # Needs to be first import
+from unsloth import FastLanguageModel, PatchFastRL  # Needs to be first import
+
+PatchFastRL("GRPO", FastLanguageModel)
+
 import os
 import time
 from datetime import datetime
@@ -8,6 +11,7 @@ import torch
 from trl import GRPOConfig
 
 from arc_utils.utils import parse_response
+
 # from GRPOTrainer import GRPOTrainer
 from trainers.ARCTrainer import GRPOTrainer
 import prompts as prompts_getter
@@ -124,6 +128,7 @@ def setup_model(params):
         device_map="auto",
         max_lora_rank=params["lora_rank"],
         gpu_memory_utilization=0.8,
+        fast_inference=True,
         # quantization_config=quant_config,
         # torch_dtype=torch.bfloat16,
     )
@@ -166,14 +171,15 @@ def main(params):
         bf16=True,
         learning_rate=params["learning_rate"],
         per_device_train_batch_size=params["batch_size"],
-        gradient_accumulation_steps=len(training_dataset) if params["grad_acc_steps"] is None else params["grad_acc_steps"],
+        gradient_accumulation_steps=params["grad_acc_steps"],
         num_train_epochs=params["num_train_epochs"],
         temperature=params["online_temperature"],
         num_generations=params["num_generations"],
         max_completion_length=params["online_max_completion_length"],
         beta=params["beta"],
         report_to="wandb",
-        run_name=wandb_id
+        run_name=wandb_id,
+        use_vllm=True,
     )
     trainer = GRPOTrainer(
         model=model,
@@ -182,7 +188,7 @@ def main(params):
         reward_funcs=reward_len,  # Placeholder reward func
         args=training_args,
         train_dataset=training_dataset,
-        validation_example={"prompt": validation_dataset['dataset'][-1], "solution": validation_dataset['solution']},
+        validation_example={"prompt": validation_dataset["dataset"][-1], "solution": validation_dataset["solution"]},
         logfile=logfile,
         target=params["target"],
         n_reps=params["n_reps"],
@@ -190,7 +196,7 @@ def main(params):
         sample_related=params["related"],
         task=params["task"],
         arc_dataset_file=params["arc_dataset_file"],
-        generation_args={}
+        generation_args={},
     )
     start_time = time.time()
 
@@ -206,24 +212,26 @@ def main(params):
         json.dump(data, file, indent=2)
 
     if params["task"] == "arc":
-        prompt = test_dataset['dataset'][-1]
+        prompt = test_dataset["dataset"][-1]
         solution = test_dataset["solution"]
 
         inputs = tokenizer.apply_chat_template([prompt], tokenize=True, return_tensors="pt").to(DEVICE)
         attention_mask = (inputs != tokenizer.pad_token_id).long()
         with torch.no_grad():
-            output0 = model.generate(inputs,
-                                     attention_mask=attention_mask,
-                                     do_sample=False,
-                                     max_new_tokens=1024)[:, len(inputs[0]):]
-            output = model.generate(inputs,
-                                    attention_mask=attention_mask,
-                                    num_return_sequences=5,
-                                    max_new_tokens=1024,
-                                    temperature=0.9)[:, len(inputs[0]):]
+            greedy_output = model.generate(inputs, attention_mask=attention_mask, do_sample=False, max_new_tokens=1024)[
+                :, len(inputs[0]) :
+            ]
+            output = model.generate(
+                inputs,
+                attention_mask=attention_mask,
+                do_sample=True,
+                num_return_sequences=1,
+                max_new_tokens=128,
+                temperature=0.9,
+            )[:, len(inputs[0]) :]
         with open(logfile, "r") as file:
             data = json.load(file)
-        decoded_greedy = tokenizer.batch_decode(output0, skip_special_tokens=True)
+        decoded_greedy = tokenizer.batch_decode(greedy_output, skip_special_tokens=True)
         decoded_sample = tokenizer.batch_decode(output, skip_special_tokens=True)
         final_samples = [parse_response(s) for s in decoded_greedy + decoded_sample]
         final_scores = [trainer.get_bb_score(solution, sample) for sample in final_samples]
