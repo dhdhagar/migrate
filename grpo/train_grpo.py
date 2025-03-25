@@ -67,6 +67,7 @@ def parse_arguments():
     parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--minimum_training_size", type=int, default=50)
     parser.add_argument("--maximum_training_size", type=int, default=80)
+    parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     return args
 
@@ -178,7 +179,7 @@ def main(params):
         beta=params["beta"],
         report_to="wandb",
         run_name=wandb_id,
-        use_vllm=True,
+        use_vllm=params["use_vllm"],
     )
     trainer = GRPOTrainer(
         model=model,
