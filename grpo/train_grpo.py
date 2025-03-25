@@ -58,8 +58,9 @@ def parse_arguments():
         "--arc_dataset_file", type=str, default="kaggle/input/arc-prize-2024/arc-agi_evaluation_challenges.json"
     )
     parser.add_argument(
-        "--arc_dataset_solutions_file", type=str,
-        default="kaggle/input/arc-prize-2024/arc-agi_evaluation_solutions.json"
+        "--arc_dataset_solutions_file",
+        type=str,
+        default="kaggle/input/arc-prize-2024/arc-agi_evaluation_solutions.json",
     )
     parser.add_argument("--save_model", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--all_combinations", action=argparse.BooleanOptionalAction, default=False)
@@ -94,10 +95,7 @@ def setup_logging(params):
     logfile = f"{logdir}/{timestamp}.log"
     wandb_id = f'{params["strategy"]}-{params["target"]}-{timestamp}'
     with open(logfile, "w") as file:
-        file.write(
-            json.dumps({
-                "params": params, "guesses": [], "chosen": [], "validation": [], "final_sample": ""
-            }, indent=2))
+        file.write(json.dumps({"params": params, "guesses": [], "validation": [], "final_sample": ""}, indent=2))
     return logdir, logfile, wandb_id
 
 
@@ -157,6 +155,7 @@ def reward_len(completions, **kwargs):
 
 def main(params):
     training_dataset, validation_dataset, test_dataset = create_dataset(params)
+    print(len(training_dataset))
     # dataset = [dataset[0].copy() for i in range(100)]
 
     # model, tokenizer, peft_config = setup_model(params)
