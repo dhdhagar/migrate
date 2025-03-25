@@ -452,11 +452,11 @@ class GRPOTrainer(GRPOTrainer):
         # Create final completions for computing loss
         prompt = {"prompt": prompts[0]}
         prompt_text = [maybe_apply_chat_template(prompt, self.processing_class)["prompt"]]
-        prompt_inputs = self.processing_class(prompt_text, return_tensors="pt", add_special_tokens=False)
+        prompt_ids = self.processing_class(prompt_text, return_tensors="pt", add_special_tokens=False).input_ids
         completion_ids = self.processing_class(
             completions, return_tensors="pt", add_special_tokens=False, padding=True
         ).input_ids
-        prompt_inputs_repeated = torch.repeat_interleave(prompt_inputs["input_ids"], len(completion_ids), dim=0)
+        prompt_inputs_repeated = torch.repeat_interleave(prompt_ids, len(completion_ids), dim=0)
         prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1).to(device)
 
         self.num_generations = len(completions)
