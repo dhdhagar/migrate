@@ -153,8 +153,6 @@ def reward_len(completions, **kwargs):
 def main(params):
     training_dataset, validation_dataset, test_dataset = create_dataset(params)
     # dataset = [dataset[0].copy() for i in range(100)]
-    if params["task"] == "arc":
-        params["batch_size"] = 1  # len(dataset)
 
     # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)
