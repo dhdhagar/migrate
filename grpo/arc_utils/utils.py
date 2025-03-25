@@ -59,23 +59,31 @@ def parse_numpy_from_str(array_str: str) -> np.ndarray:
         print(array_str)
         # Return a default 1x1 array with a zero element in case of an error
         # raise e
-        return None
+        return np.array([[]])
 
 
 def hamming_distance(solution, attempt):
-    output = solution
-    attempt = np.array(attempt)
+    """
+    Parses a string representation of a 2D array into a NumPy ndarray.
+
+    Parameters:
+    - solution (np.ndarray): The solution ARC grid represented as a 2D array
+    - attempt (np.ndarray): The proposed ARC grid represented as a 2D array
+
+    Returns:
+    - float: The normalized hamming distance between the solution and attempt.
+    """
     # attempt must be a 2D array
-    if len(attempt.shape) == 2:
-        output_size = output.shape[0] * output.shape[1]
+    if attempt is not None and len(attempt.shape) == 2:
+        output_size = solution.shape[0] * solution.shape[1]
         # if shapes are different find the minimum shape
-        min_width = min(output.shape[1], attempt.shape[1])
-        min_height = min(output.shape[0], attempt.shape[0])
-        output = output[:min_height, :min_width]
+        min_width = min(solution.shape[1], attempt.shape[1])
+        min_height = min(solution.shape[0], attempt.shape[0])
+        solution = solution[:min_height, :min_width]
         attempt = attempt[:min_height, :min_width]
-        # remaining number of elementx
+        # remaining number of elements
         additional_elements = output_size - (min_height * min_width)
-        return (int(np.sum(output != attempt)) + additional_elements) / output_size
+        return (int(np.sum(solution != attempt)) + additional_elements) / output_size
     return 1.0
 
 
