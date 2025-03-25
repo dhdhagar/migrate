@@ -236,6 +236,9 @@ def main(params):
     if params["save_model"]:
         model.save_pretrained_merged(logdir, tokenizer, save_method="lora")
 
+    torch.cuda.empty_cache()
+    torch.distributed.destroy_process_group()
+
 
 if __name__ == "__main__":
     # Set up W&B
