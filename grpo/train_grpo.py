@@ -67,7 +67,7 @@ def parse_arguments():
     parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--minimum_training_size", type=int, default=50)
     parser.add_argument("--maximum_training_size", type=int, default=80)
-    parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
     return args
 
@@ -127,7 +127,7 @@ def setup_model(params):
         device_map="auto",
         max_lora_rank=params["lora_rank"],
         gpu_memory_utilization=0.8,
-        fast_inference=True,
+        fast_inference=params["use_vllm"],
         # quantization_config=quant_config,
         # torch_dtype=torch.bfloat16,
     )
