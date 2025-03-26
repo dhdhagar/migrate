@@ -67,6 +67,7 @@ def parse_arguments():
     parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--minimum_training_size", type=int, default=50)
     parser.add_argument("--maximum_training_size", type=int, default=80)
+    parser.add_argument("--validation_interval", type=int, default=5)
     parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
     return args
@@ -190,6 +191,7 @@ def main(params):
         args=training_args,
         train_dataset=training_dataset,
         validation_example={"prompt": validation_dataset["dataset"][-1], "solution": validation_dataset["solution"]},
+        validation_interval=params["validation_interval"],
         logfile=logfile,
         target=params["target"],
         n_reps=params["n_reps"],

@@ -88,6 +88,7 @@ class GRPOTrainer(GRPOTrainer):
         self.arc_past_guesses = {}
         self.arc_dataset_file = arc_dataset_file
         self.validation_example = validation_example
+        self.validation_interval = validation_interval
 
         self.generation_args = generation_args
 
