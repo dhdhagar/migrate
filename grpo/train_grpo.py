@@ -40,7 +40,6 @@ def parse_arguments():
     parser.add_argument("--4bit", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--target", "-t", type=str, default="computer")
     parser.add_argument("--num_guesses", type=int, default=10)
-    parser.add_argument("--n_reps", "-n", type=int, default=1)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--warmstart", type=float, default=0)
     parser.add_argument("--strategy", type=str, default="Oracle_Single")
@@ -199,7 +198,6 @@ def main(params):
         validation_interval=params["validation_interval"],
         logfile=logfile,
         target=params["target"],
-        n_reps=params["n_reps"],
         strategy=params["strategy"],
         sample_related=params["related"],
         task=params["task"],

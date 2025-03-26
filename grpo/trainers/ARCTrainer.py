@@ -55,7 +55,6 @@ class GRPOTrainer(GRPOTrainer):
         self,
         target,
         strategy,
-        n_reps,
         logfile,
         sample_related,
         task,
@@ -72,7 +71,6 @@ class GRPOTrainer(GRPOTrainer):
         self.target = target
         self.past_guesses = {}
         self.strategy = strategy
-        self.n_reps = n_reps
         self.sample_related = sample_related
         self.task = task
 
