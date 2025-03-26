@@ -186,7 +186,7 @@ class GRPOTrainer(GRPOTrainer):
                     input_ids=prompt_ids.to(self.args.device),
                     attention_mask=prompt_mask.to(self.args.device),
                     do_sample=False,
-                    max_new_tokens=self.args.max_new_tokens,
+                    max_new_tokens=self.max_completion_length,
                 )
                 prompt_length = prompt_inputs["input_ids"].size(1)
                 completions = self.processing_class.batch_decode(
