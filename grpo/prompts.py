@@ -83,8 +83,9 @@ Note: the output grid can be of a different shape than the input grid and the in
 Your answer must follow the same format.
 
 Now apply the transformation to the provided test case."""
-    
-def create_arc_prompts(possible_context_examples, user_input, do_permutation=True):
+
+
+def create_arc_prompts(possible_context_examples, user_input, do_permutation=False):
     dataset = []
     # Loop over all possible context sizes
     for i in range(len(possible_context_examples) + 1):
@@ -159,12 +160,12 @@ def get_arc_datasets(
     training_dataset = training_dataset[:maximum_training_size]
 
     all_training_examples = data[task_id]["train"]
-    leave_out_input = str(data[task_id]["test"][0]["input"])
+    leave_out_input = str(np.array(data[task_id]["test"][0]["input"]))
     test_dataset = create_arc_prompts(all_training_examples, leave_out_input)
     print("Test dataset size", len(test_dataset))
     test_dataset = {"dataset": test_dataset, "solution": np.array(data_solutions[task_id][0])}
 
-    dataset = create_arc_prompts(training_examples, validation_example["input"])
+    dataset = create_arc_prompts(training_examples, str(np.array(validation_example["input"])))
     print("Validation dataset size", len(dataset))
     validation_dataset = {"dataset": dataset, "solution": np.array(validation_example["output"])}
 
