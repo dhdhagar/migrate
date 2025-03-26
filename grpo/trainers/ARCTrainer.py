@@ -93,8 +93,6 @@ class GRPOTrainer(GRPOTrainer):
 
         self.generation_args = generation_args
 
-        self.continue_training = True
-
     # Compute black-box score
     def get_bb_score(self, completion1, completion2, verbose=True):
         score = 1 - arc_utils.hamming_distance(completion1, completion2)
