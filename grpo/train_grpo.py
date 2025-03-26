@@ -8,7 +8,7 @@ from datetime import datetime
 import argparse
 import json
 import torch
-from trl import GRPOConfig
+from trl import GRPOConfig, maybe_apply_chat_template
 
 from arc_utils.utils import parse_response
 
@@ -18,6 +18,11 @@ import prompts as prompts_getter
 import numpy as np
 from typing import List
 import wandb
+from vllm import SamplingParams
+
+from accelerate.utils import broadcast_object_list, gather_object
+
+from trl.models.utils import unwrap_model_for_generation
 
 # from peft import LoraConfig
 # from transformers import (
@@ -215,31 +220,75 @@ def main(params):
         json.dump(data, file, indent=2)
 
     if params["task"] == "arc":
-        prompt = test_dataset["dataset"][-1]
-        solution = test_dataset["solution"]
-
-        inputs = tokenizer.apply_chat_template([prompt], tokenize=True, return_tensors="pt").to(DEVICE)
-        attention_mask = (inputs != tokenizer.pad_token_id).long()
         with torch.no_grad():
-            greedy_output = model.generate(inputs, attention_mask=attention_mask, do_sample=False, max_new_tokens=1024)[
-                :, len(inputs[0]) :
-            ]
-            output = model.generate(
-                inputs,
-                attention_mask=attention_mask,
-                do_sample=True,
-                num_return_sequences=1,
-                max_new_tokens=128,
-                temperature=0.9,
-            )[:, len(inputs[0]) :]
-        with open(logfile, "r") as file:
-            data = json.load(file)
-        decoded_greedy = tokenizer.batch_decode(greedy_output, skip_special_tokens=True)
-        decoded_sample = tokenizer.batch_decode(output, skip_special_tokens=True)
-        final_samples = [parse_response(s) for s in decoded_greedy + decoded_sample]
-        final_scores = [trainer.get_bb_score(solution, sample) for sample in final_samples]
-        data["final_sample"] = decoded_greedy + decoded_sample
-        data["final_score"] = final_scores
+            prompts = test_dataset["dataset"]
+            solution = test_dataset["solution"]
+            prompts_text = [maybe_apply_chat_template({"prompt": prompt}, tokenizer)["prompt"] for prompt in prompts]
+            if params["use_vllm"]:
+                # Make sure model is up-to-date in vllm
+                if trainer.state.global_step != trainer._last_loaded_step:
+                    trainer._move_model_to_vllm()
+                    trainer._last_loaded_step = trainer.state.global_step
+
+                # Generate completions using vLLM: gather all prompts and use them in a single call in the main process
+                all_prompts_text = gather_object(prompts_text)
+                if trainer.accelerator.is_main_process:
+                    outputs = trainer.llm.generate(
+                        all_prompts_text,
+                        sampling_params=SamplingParams(temperature=0.0, n=1, max_tokens=512),
+                        use_tqdm=False,
+                    )
+                    completion_ids = [out.token_ids for completions in outputs for out in completions.outputs]
+                else:
+                    completion_ids = [None] * len(all_prompts_text)
+                # Broadcast the completions from the main process to all processes, ensuring each process receives its
+                # corresponding slice.
+                completion_ids = broadcast_object_list(completion_ids, from_process=0)
+                process_slice = slice(
+                    trainer.accelerator.process_index * len(prompts),
+                    (trainer.accelerator.process_index + 1) * len(prompts),
+                )
+                completion_ids = completion_ids[process_slice]
+
+                # Pad the completions, and concatenate them with the prompts
+                completion_ids = [torch.tensor(ids, device=DEVICE) for ids in completion_ids]
+
+                completions = trainer.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
+            else:
+                prompt_inputs = trainer.processing_class(
+                    prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
+                )
+                prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
+                # Regular generation path
+                with unwrap_model_for_generation(trainer.model, trainer.accelerator) as unwrapped_model:
+                    completion_ids = unwrapped_model.generate(
+                        input_ids=prompt_ids.to(DEVICE),
+                        attention_mask=prompt_mask.to(DEVICE),
+                        do_sample=False,
+                        max_new_tokens=512,
+                    )
+                    prompt_length = prompt_inputs["input_ids"].size(1)
+                    completions = trainer.processing_class.batch_decode(
+                        completion_ids[:, prompt_length:], skip_special_tokens=True
+                    )
+
+        # Aggregate results
+        results = {}
+        for completion in completions:
+            parsed_completion = parse_response(completion)
+            parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
+            # Get black-box score if completion is valid otherwise 0
+            score = (
+                trainer.get_bb_score(solution, parsed_completion) if isinstance(parsed_completion, np.ndarray) else 0
+            )
+            parsed_completion = str(parsed_completion)
+            # Track completions and their scores
+            results[parsed_completion] = results.get(parsed_completion, {"score": score, "count": 0})
+            results[parsed_completion]["count"] += 1
+
+        data["final_sample"] = [
+            {"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in results.items()
+        ]
         with open(logfile, "w") as file:
             json.dump(data, file, indent=4)
 
@@ -248,7 +297,6 @@ def main(params):
         model.save_pretrained_merged(logdir, tokenizer, save_method="lora")
 
     torch.cuda.empty_cache()
-    torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":
