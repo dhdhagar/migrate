@@ -180,6 +180,7 @@ def main(params):
         report_to="wandb",
         run_name=wandb_id,
         use_vllm=params["use_vllm"],
+        max_prompt_length=None,
     )
     trainer = GRPOTrainer(
         model=model,
