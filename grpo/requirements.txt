@@ -143,7 +143,7 @@ torchvision==0.21.0
 tqdm==4.67.1
 transformers==4.49.0
 triton==3.2.0
-trl==0.15.2
+trl==0.16.0
 typeguard==4.4.2
 typer==0.15.2
 typing_extensions==4.12.2
