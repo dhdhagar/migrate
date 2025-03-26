@@ -12,7 +12,7 @@ model_name="ekinakyurek/marc-8B-finetuned-llama3"
 # model_name="meta-llama/Llama-3.2-1B-Instruct"
 
 for target in "${targets[@]}"; do
-  accelerate launch train_grpo.py --date "$current_time" --model "$model_name" --target "$target" --n_reps 5 --num_guesses 1 --strategy "Greedy_Single" --task "arc" --steps 2 --num_train_epochs 1
+  accelerate launch train_grpo.py --date "$current_time" --model "$model_name" --target "$target" --num_guesses 1 --strategy "Greedy_Single" --task "arc" --steps 2 --num_train_epochs 1 --maximum_training_size 20
 done
 
 # Other arguments
