@@ -97,7 +97,7 @@ def setup_logging(params):
     logfile = f"{logdir}/{timestamp}.log"
     wandb_id = f'{params["strategy"]}-{params["target"]}-{timestamp}'
     with open(logfile, "w") as file:
-        file.write(json.dumps({"params": params, "guesses": [], "validation": [], "final_sample": ""}, indent=2))
+        file.write(json.dumps({"params": params, "guesses": [], "validation": [], "final_sample": []}, indent=2))
     return logdir, logfile, wandb_id
 
 
