@@ -185,9 +185,8 @@ class GRPOTrainer(GRPOTrainer):
                 completion_ids = unwrapped_model.generate(
                     input_ids=prompt_ids.to(self.args.device),
                     attention_mask=prompt_mask.to(self.args.device),
-                    generation_config=self.generation_config,
-                    # num_return_sequences=self.n_reps,
-                    **self.generation_args,
+                    do_sample=False,
+                    max_new_tokens=self.args.max_new_tokens,
                 )
                 prompt_length = prompt_inputs["input_ids"].size(1)
                 completions = self.processing_class.batch_decode(
