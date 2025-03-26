@@ -69,6 +69,7 @@ class GRPOTrainer(GRPOTrainer):
         task,
         arc_dataset_file,
         validation_example,
+        validation_interval,
         generation_args,
         *args,
         **kwargs,
