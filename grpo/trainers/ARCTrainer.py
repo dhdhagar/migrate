@@ -17,7 +17,7 @@ from trl.trainer.utils import print_prompt_completions_sample, selective_log_sof
 from trl.extras.profiling import profiling_context
 from trl.import_utils import is_rich_available
 from accelerate.utils import broadcast_object_list, gather_object, gather
-from transformers import is_wandb_available
+from transformers import is_wandb_available, ProgressCallback
 from transformers.utils import (
     is_apex_available,
     is_sagemaker_mp_enabled,
@@ -48,6 +48,30 @@ def log_response(response, logfile):
         data["guesses"].append(response)
     with open(logfile, "w") as file:
         json.dump(data, file, indent=4)
+
+
+class CustomProgressCallback(ProgressCallback):
+    def __init__(self):
+        super(CustomProgressCallback, self).__init__()
+        self.loss = None
+        self.val_acc = None
+        self.train_acc = None
+        self.train_acc_max = None
+
+    def on_step_end(self, args, state, control, **kwargs):
+        super(CustomProgressCallback, self).on_step_end(args, state, control, **kwargs)
+
+        if state.is_world_process_zero:
+            self.training_bar.set_postfix({
+                "loss": self.loss,
+                "train_acc_mean": self.train_acc,
+                "train_acc_max": self.train_acc_max,
+                "val_acc": self.val_acc,
+            })
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if state.is_world_process_zero and self.training_bar is not None:
+            self.training_bar.write("")
 
 
 class GRPOTrainer(GRPOTrainer):
@@ -86,6 +110,10 @@ class GRPOTrainer(GRPOTrainer):
         self.generation_args = generation_args
         self.grpo_weight = grpo_weight
         self.nll_weight = nll_weight
+
+        for callback in self.callback_handler.callbacks:
+            if type(callback) is CustomProgressCallback:
+                self.progress_callback = callback
 
     # Compute black-box score
     def get_bb_score(self, completion1, completion2, verbose=True):
@@ -134,6 +162,7 @@ class GRPOTrainer(GRPOTrainer):
             return None
 
     def run_validation(self):
+        print("\n==================\nRUNNING VALIDATION\n==================")
         prompts = self.validation_example["dataset"]
         prompts_text = [
             maybe_apply_chat_template({"prompt": example}, self.processing_class)["prompt"] for example in prompts
@@ -216,18 +245,26 @@ class GRPOTrainer(GRPOTrainer):
         if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]) and sorted_majority[0][1]["count"] > 1:
             self.control.should_training_stop = True
 
-        print("VALIDATION SOLUTION", self.validation_example["solution"])
-        print("VALIDATION ATTEMPT", sorted_majority[0][0])
-        print("VALIDATION SCORE", sorted_majority[0][1]["score"])
+        # Update training bar
+        self.progress_callback.val_acc = np.round(sorted_majority[0][1]["score"], 4)
+
+        # print("VALIDATION SOLUTION", self.validation_example["solution"])
+        # print("VALIDATION ATTEMPT", sorted_majority[0][0])
+        # print("VALIDATION SCORE", sorted_majority[0][1]["score"])
 
         # Log validation results
         with open(self.logfile, "r") as file:
             data = json.load(file)
-            data["validation"].append(
-                [{"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in results.items()]
-            )
+        data["validation"].append(
+            {
+                "prompts": prompts_text,
+                "results": [{"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in
+                            results.items()]
+            }
+        )
         with open(self.logfile, "w") as file:
-            json.dump(data, file, indent=4)
+            json.dump(data, file, indent=2)
+        print(f"Validation results saved to {self.logfile}\n")
 
     def _prepare_inputs(self, inputs: dict[str, Union[torch.Tensor, Any]]) -> dict[str, Union[torch.Tensor, Any]]:
         if self.iteration % self.validation_interval == 0:
@@ -385,6 +422,13 @@ class GRPOTrainer(GRPOTrainer):
                 self.greedy_idx_replaced = idx
                 completions[idx] = best_guess[0]
                 rewards[idx] = best_guess[1]
+                mean_reward_minus_replacement = np.mean(
+                    [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
+                max_reward_minus_replacement = np.max(
+                    [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
+                # Update training bar
+                self.progress_callback.train_acc = np.round(mean_reward_minus_replacement, 4)
+                self.progress_callback.train_acc_max = np.round(max_reward_minus_replacement, 4)
         elif self.strategy == "Greedy_Batch_Mean":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
@@ -509,9 +553,9 @@ class GRPOTrainer(GRPOTrainer):
                 print("AFTER", completions)
                 print("AFTER", rewards)
 
-        print("COMPLETIONS:\n", completions)
-        print("REWARDS:\n", rewards)
-        print("MEAN REWARD:", np.mean(rewards))
+        # print("COMPLETIONS:\n", completions)
+        # print("REWARDS:\n", rewards)
+        # print("MEAN REWARD:", np.mean(rewards))
 
         # Record guesses into history and log repsonses
         self.update_past_guesses(responses, bb_scores)
@@ -758,5 +802,7 @@ class GRPOTrainer(GRPOTrainer):
                 loss += nll_loss
             self._metrics["train"]["nll_loss"].append(nll_loss.item())
             # self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
+
+        self.progress_callback.loss = np.round(loss.item(), 4)
 
         return loss
