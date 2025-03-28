@@ -75,6 +75,7 @@ def parse_arguments():
     parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--grpo_weight", type=float, default=1.0)
     parser.add_argument("--nll_weight", type=float, default=0.0)
+    parser.add_argument("--pro_loss_weight", type=float, default=0.0)
     args = parser.parse_args()
     return args
 
@@ -208,6 +209,7 @@ def main(params):
         generation_args={},
         grpo_weight=params["grpo_weight"],
         nll_weight=params["nll_weight"],
+        pro_loss_weight=params["pro_loss_weight"],
         callbacks=[CustomProgressCallback()]
     )
     start_time = time.time()

@@ -2,6 +2,7 @@ import re
 import numpy as np
 import glob
 import json
+import torch
 
 
 def parse_response(output: str) -> np.ndarray:
@@ -21,7 +22,7 @@ def parse_response(output: str) -> np.ndarray:
     end_idx = [match.start() for match in re.finditer(r"\]\]", output)]
     if len(start_idx) > 0 and len(end_idx) > 0:
         # Parse the last grid found in the response into a 2D array
-        arr = parse_numpy_from_str(output[start_idx[-1] : end_idx[-1] + 2])
+        arr = parse_numpy_from_str(output[start_idx[-1]: end_idx[-1] + 2])
         return arr
     return np.array([[]])
 
@@ -129,3 +130,25 @@ def get_training_time(tasks, log_dir):
             except Exception as _:
                 pass
     return durations
+
+
+def pro_loss(p, start_neg_idx_to_ignore=None):
+    """
+    Compute the PRO (https://arxiv.org/pdf/2306.17492) loss for a batch of scores p.
+    Args:
+        p: Tensor of shape (batch_size, n) containing scores.
+    Returns:
+        Scalar tensor representing the loss.
+    """
+    batch_size, n = p.shape
+
+    indices = torch.arange(n - 1, device=p.device).view(1, -1, 1)  # Shape: (1, n-1, 1)
+    p_expanded = p.unsqueeze(1).expand(-1, n - 1, -1)  # Shape: (batch_size, n-1, n)
+    mask = torch.arange(n, device=p.device).view(1, 1, -1) >= indices  # Mask for denominator summation
+    inf_mask = torch.full(mask.shape, float('-inf'), device=p.device)
+    inf_mask[mask] = 0  # Only allow valid indices
+    denominators = torch.logsumexp(p_expanded + inf_mask, dim=2)  # Shape: (batch_size, n-1)
+    numerators = p[:, :-1]  # Shape: (batch_size, n-1)
+    loss = - (numerators - denominators)[:, :start_neg_idx_to_ignore].sum(dim=1).mean()
+
+    return loss

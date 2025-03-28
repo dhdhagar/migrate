@@ -25,6 +25,8 @@ from transformers.utils import (
 import prompts as prompts_getter
 import arc_utils.utils as arc_utils
 
+from ..arc_utils.utils import pro_loss
+
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -88,6 +90,7 @@ class GRPOTrainer(GRPOTrainer):
             generation_args,
             grpo_weight,
             nll_weight,
+            pro_loss_weight,
             *args,
             **kwargs,
     ):
@@ -110,6 +113,7 @@ class GRPOTrainer(GRPOTrainer):
         self.generation_args = generation_args
         self.grpo_weight = grpo_weight
         self.nll_weight = nll_weight
+        self.pro_loss_weight = pro_loss_weight
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -797,11 +801,13 @@ class GRPOTrainer(GRPOTrainer):
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         per_token_logps = self._get_per_token_logps_clone(model, input_ids, attention_mask, logits_to_keep)
 
+        completion_logps = None
         if self.nll_weight > 0:
             # breakpoint()
             completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[:,
                                                                                                     -logits_to_keep:].sum(
                 dim=1)
+            # Use the gold completion logp for NLL
             oracle_logp = completion_logps[self.greedy_idx_replaced]
             nll_loss = self.nll_weight * -oracle_logp
             if loss is None or loss == 0:
@@ -809,7 +815,22 @@ class GRPOTrainer(GRPOTrainer):
             else:
                 loss += nll_loss
             self._metrics["train"]["nll_loss"].append(nll_loss.item())
-            # self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
+
+        if self.pro_loss_weight > 0:
+            if completion_logps is None:
+                completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[
+                                                                                                        :,
+                                                                                                        -logits_to_keep:].sum(
+                    dim=1)
+            sorted_order = torch.argsort(inputs["advantages"], descending=True)
+            sorted_completion_logps = completion_logps[sorted_order]
+            _pro_loss = self.pro_loss_weight * pro_loss(sorted_completion_logps)
+            breakpoint()
+            if loss is None or loss == 0:
+                loss = _pro_loss
+            else:
+                loss += _pro_loss
+            self._metrics["train"]["pro_loss"].append(_pro_loss.item())
 
         self.progress_callback.loss = np.round(loss.item(), 4)
 
