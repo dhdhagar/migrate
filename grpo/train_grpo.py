@@ -304,7 +304,9 @@ def main(params):
             print(f"BEST COMPLETION: {data['test_best']}")
 
         with open(logfile, "w") as file:
-            json.dump(data, file, indent=4)
+            json.dump(data, file, indent=2)
+
+        print(f"\nLogs saved to {logfile}.")
 
     # Save model
     if params["save_model"]:
