@@ -178,49 +178,50 @@ def main(params):
 
     logdir, logfile, wandb_id = setup_logging(params)
 
+    training_args = GRPOConfig(
+        output_dir="GRPO",
+        logging_steps=1,
+        fp16=False,
+        bf16=True,
+        learning_rate=params["learning_rate"],
+        per_device_train_batch_size=params["batch_size"],
+        gradient_accumulation_steps=params["grad_acc_steps"],
+        num_train_epochs=params["num_train_epochs"],
+        temperature=params["online_temperature"],
+        num_generations=params["num_generations"],
+        max_completion_length=params["online_max_completion_length"],
+        beta=params["beta"],
+        report_to="wandb",
+        run_name=wandb_id,
+        use_vllm=params["use_vllm"],
+        max_prompt_length=None,
+        disable_tqdm=True  # To avoid double tqdm bars because of CustomProgressCallback
+    )
+    trainer = GRPOTrainer(
+        model=model,
+        processing_class=tokenizer,
+        # peft_config=peft_config, # no need with unsloth
+        reward_funcs=reward_len,  # Placeholder reward func
+        args=training_args,
+        train_dataset=training_dataset,
+        validation_example=validation_dataset,
+        validation_interval=params["validation_interval"],
+        logfile=logfile,
+        target=params["target"],
+        strategy=params["strategy"],
+        sample_related=params["related"],
+        task=params["task"],
+        arc_dataset_file=params["arc_dataset_file"],
+        generation_args={},
+        grpo_weight=params["grpo_weight"],
+        nll_weight=params["nll_weight"],
+        pro_loss_weight=params["pro_loss_weight"],
+        train_temperature=params["train_temperature"],
+        use_train_temp_schedule=params["use_train_temp_schedule"],
+        callbacks=[CustomProgressCallback()]
+    )
+
     if not params["only_inference"]:
-        training_args = GRPOConfig(
-            output_dir="GRPO",
-            logging_steps=1,
-            fp16=False,
-            bf16=True,
-            learning_rate=params["learning_rate"],
-            per_device_train_batch_size=params["batch_size"],
-            gradient_accumulation_steps=params["grad_acc_steps"],
-            num_train_epochs=params["num_train_epochs"],
-            temperature=params["online_temperature"],
-            num_generations=params["num_generations"],
-            max_completion_length=params["online_max_completion_length"],
-            beta=params["beta"],
-            report_to="wandb",
-            run_name=wandb_id,
-            use_vllm=params["use_vllm"],
-            max_prompt_length=None,
-            disable_tqdm=True  # To avoid double tqdm bars because of CustomProgressCallback
-        )
-        trainer = GRPOTrainer(
-            model=model,
-            processing_class=tokenizer,
-            # peft_config=peft_config, # no need with unsloth
-            reward_funcs=reward_len,  # Placeholder reward func
-            args=training_args,
-            train_dataset=training_dataset,
-            validation_example=validation_dataset,
-            validation_interval=params["validation_interval"],
-            logfile=logfile,
-            target=params["target"],
-            strategy=params["strategy"],
-            sample_related=params["related"],
-            task=params["task"],
-            arc_dataset_file=params["arc_dataset_file"],
-            generation_args={},
-            grpo_weight=params["grpo_weight"],
-            nll_weight=params["nll_weight"],
-            pro_loss_weight=params["pro_loss_weight"],
-            train_temperature=params["train_temperature"],
-            use_train_temp_schedule=params["use_train_temp_schedule"],
-            callbacks=[CustomProgressCallback()]
-        )
         start_time = time.time()
 
         trainer.train()
@@ -273,7 +274,7 @@ def main(params):
 
                 completions = trainer.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
             else:
-                prompt_inputs = trainer.processing_class(
+                prompt_inputs = tokenizer(
                     prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
                 )
                 prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
@@ -286,7 +287,7 @@ def main(params):
                         max_new_tokens=512,
                     )
                     prompt_length = prompt_inputs["input_ids"].size(1)
-                    completions = trainer.processing_class.batch_decode(
+                    completions = tokenizer.batch_decode(
                         completion_ids[:, prompt_length:], skip_special_tokens=True
                     )
 
