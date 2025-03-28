@@ -823,8 +823,8 @@ class GRPOTrainer(GRPOTrainer):
                     dim=1)
             sorted_order = torch.argsort(inputs["advantages"], descending=True)
             sorted_completion_logps = completion_logps[sorted_order]
-            _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps)
             breakpoint()
+            _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps)
             if loss is None or loss == 0:
                 loss = _pro_loss
             else:
