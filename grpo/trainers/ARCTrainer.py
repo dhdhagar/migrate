@@ -734,7 +734,7 @@ class GRPOTrainer(GRPOTrainer):
         return selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+        # loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
