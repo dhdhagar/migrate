@@ -25,7 +25,6 @@ from transformers.utils import (
 import prompts as prompts_getter
 import arc_utils.utils as arc_utils
 
-from ..arc_utils.utils import pro_loss
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -824,7 +823,7 @@ class GRPOTrainer(GRPOTrainer):
                     dim=1)
             sorted_order = torch.argsort(inputs["advantages"], descending=True)
             sorted_completion_logps = completion_logps[sorted_order]
-            _pro_loss = self.pro_loss_weight * pro_loss(sorted_completion_logps)
+            _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps)
             breakpoint()
             if loss is None or loss == 0:
                 loss = _pro_loss
