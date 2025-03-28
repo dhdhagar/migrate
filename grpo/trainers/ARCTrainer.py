@@ -746,7 +746,7 @@ class GRPOTrainer(GRPOTrainer):
         per_token_logps = self._get_per_token_logps_clone(model, input_ids, attention_mask, logits_to_keep)
 
         if self.nll_weight > 0:
-            breakpoint()
+            # breakpoint()
             completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[:,
                                                                                                     -logits_to_keep:].sum(
                 dim=1)
@@ -757,7 +757,6 @@ class GRPOTrainer(GRPOTrainer):
             else:
                 loss += nll_loss
             self._metrics["train"]["nll_loss"].append(nll_loss.item())
-            # self.past_guesses[str(self.arc_sol)]
             # self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
 
         return loss
