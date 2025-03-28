@@ -13,7 +13,7 @@ from trl import GRPOConfig, maybe_apply_chat_template
 from arc_utils.utils import parse_response
 
 # from GRPOTrainer import GRPOTrainer
-from trainers.ARCTrainer import GRPOTrainer
+from trainers.ARCTrainer import GRPOTrainer, CustomProgressCallback
 import prompts as prompts_getter
 import numpy as np
 from typing import List
@@ -207,6 +207,7 @@ def main(params):
         generation_args={},
         grpo_weight=params["grpo_weight"],
         nll_weight=params["nll_weight"],
+        callbacks=[CustomProgressCallback()]
     )
     start_time = time.time()
 
