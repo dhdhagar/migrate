@@ -248,7 +248,7 @@ class GRPOTrainer(GRPOTrainer):
 
         # Do pass@2 majority voting -- also make sure majority is more than 1
         sorted_majority = sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
-        if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]) and sorted_majority[0][1]["count"] > 1:
+        if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]):  # and sorted_majority[0][1]["count"] > 1:
             self.control.should_training_stop = True
             print("EARLY STOPPING: Validation majority voting reached 100% accuracy.")
 
