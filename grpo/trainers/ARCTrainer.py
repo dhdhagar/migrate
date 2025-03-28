@@ -118,10 +118,10 @@ class GRPOTrainer(GRPOTrainer):
     # Compute black-box score
     def get_bb_score(self, completion1, completion2, verbose=True):
         score = 1 - arc_utils.hamming_distance(completion1, completion2)
-        if verbose:
-            print("ATTEMPT:\n", completion2)
-            print("SOLUTION:\n", completion1)
-            print("SCORE:", score)
+        # if verbose:
+        #     print("ATTEMPT:\n", completion2)
+        #     print("SOLUTION:\n", completion1)
+        #     print("SCORE:", score)
         return score
 
     # Record new completions and their black-box scores

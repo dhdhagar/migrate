@@ -188,6 +188,7 @@ def main(params):
         run_name=wandb_id,
         use_vllm=params["use_vllm"],
         max_prompt_length=None,
+        disable_tqdm=True  # To avoid double tqdm bars because of CustomProgressCallback
     )
     trainer = GRPOTrainer(
         model=model,
