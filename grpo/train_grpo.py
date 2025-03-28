@@ -76,6 +76,7 @@ def parse_arguments():
     parser.add_argument("--grpo_weight", type=float, default=1.0)
     parser.add_argument("--nll_weight", type=float, default=0.0)
     parser.add_argument("--pro_loss_weight", type=float, default=0.0)
+    parser.add_argument("--wandb_prefix", type=str, default=None)
     args = parser.parse_args()
     return args
 
@@ -103,6 +104,8 @@ def setup_logging(params):
     os.makedirs(logdir, exist_ok=True)
     logfile = f"{logdir}/{timestamp}.log"
     wandb_id = f'{params["strategy"]}-{params["target"]}-{timestamp}'
+    if params["wandb_prefix"] is not None:
+        wandb_id = f"{params['wandb_prefix']}-{wandb_id}"
     with open(logfile, "w") as file:
         file.write(json.dumps({"params": params, "guesses": [], "validation": []}, indent=2))
     return logdir, logfile, wandb_id
