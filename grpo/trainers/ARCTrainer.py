@@ -744,7 +744,6 @@ class GRPOTrainer(GRPOTrainer):
         per_token_logps = self._get_per_token_logps_clone(model, input_ids, attention_mask, logits_to_keep)
 
         if self.nll_weight > 0:
-            print(per_token_logps)
             breakpoint()
             # self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
 
