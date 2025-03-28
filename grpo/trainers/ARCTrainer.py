@@ -719,6 +719,20 @@ class GRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
+    def _get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep):
+        # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
+        logits = model(input_ids=input_ids, attention_mask=attention_mask, logits_to_keep=logits_to_keep + 1).logits
+        logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
+
+        input_ids = input_ids[:, -logits_to_keep:]
+        # For transformers<=4.48, logits_to_keep argument isn't supported, so here we drop logits ourselves.
+        # See https://github.com/huggingface/trl/issues/2770
+        logits = logits[:, -logits_to_keep:]
+        # Divide logits by sampling temperature.
+        # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
+        logits = logits / self.temperature
+        return GRPOTrainer.selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
