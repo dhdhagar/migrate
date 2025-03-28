@@ -298,10 +298,13 @@ def main(params):
         data["test_majority"] = data["test_samples"][0]
         data["test_best"] = sorted(data["test_samples"], key=lambda x: x["score"], reverse=True)[0]
         data["test_solved_majority"] = data["test_samples"][0]["score"] == 1.0
+        data["test_solved_majority_pass2"] = data["test_solved_majority"] or data["test_samples"][1]["score"] == 1.0
         data["test_solved_oracle"] = data["test_best"]["score"] == 1.0
 
-        print(f"TEST SOLVED: {data['test_solved']}")
-        if not data["test_solved"]:
+        print(f"TEST SOLVED @ pass1: {data['test_solved_majority']}")
+        print(f"TEST SOLVED @ pass2: {data['test_solved_majority_pass2']}")
+        print(f"TEST SOLVED ORACLE: {data['test_solved_oracle']}")
+        if not data["test_solved_majority_pass2"]:
             print(f"BEST COMPLETION: {data['test_best']}")
 
         with open(logfile, "w") as file:
