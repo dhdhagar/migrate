@@ -222,7 +222,6 @@ def main(params):
     start_time = time.time()
 
     trainer.train()
-    wandb.finish()
 
     # Log training time
     train_time = time.time() - start_time
@@ -310,6 +309,12 @@ def main(params):
         data["test_solved_majority_pass2"] = data["test_solved_majority"] or data["test_samples"][1]["score"] == 1.0
         data["test_solved_oracle"] = data["test_best"]["score"] == 1.0
 
+        # Save these logs to wandb
+        wandb.run.summary["test_solved_majority"] = data["test_solved_majority"]
+        wandb.run.summary["test_solved_majority_pass2"] = data["test_solved_majority_pass2"]
+        wandb.run.summary["test_solved_oracle"] = data["test_solved_oracle"]
+        wandb.run.summary["test_best"] = data["test_best"]
+
         print(f"TEST SOLVED @ pass1: {data['test_solved_majority']}")
         print(f"TEST SOLVED @ pass2: {data['test_solved_majority_pass2']}")
         print(f"TEST SOLVED ORACLE: {data['test_solved_oracle']}")
@@ -318,6 +323,8 @@ def main(params):
 
         with open(logfile, "w") as file:
             json.dump(data, file, indent=2)
+
+        wandb.finish()
 
         print(f"\nLogs saved to {logfile}.")
 
