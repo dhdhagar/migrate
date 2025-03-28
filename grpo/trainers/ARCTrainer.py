@@ -731,6 +731,7 @@ class GRPOTrainer(GRPOTrainer):
         # Divide logits by sampling temperature.
         # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
         logits = logits / self.temperature
+        breakpoint()
         return GRPOTrainer.selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
