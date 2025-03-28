@@ -47,7 +47,7 @@ def log_response(response, logfile):
         data = json.load(file)
         data["guesses"].append(response)
     with open(logfile, "w") as file:
-        json.dump(data, file, indent=4)
+        json.dump(data, file, indent=2)
 
 
 class CustomProgressCallback(ProgressCallback):
@@ -568,7 +568,7 @@ class GRPOTrainer(GRPOTrainer):
         self.update_past_guesses(responses, bb_scores)
         log_response(
             {
-                f"Iteration: {self.iteration}": [
+                f"iteration_{self.iteration}": [
                     (x, y)
                     for x, y in zip(
                         list(itertools.chain.from_iterable(responses)),
