@@ -89,6 +89,8 @@ class GRPOTrainer(GRPOTrainer):
             grpo_weight,
             nll_weight,
             pro_loss_weight,
+            train_temperature=1.0,
+            use_train_temp_schedule=False,
             *args,
             **kwargs,
     ):
@@ -112,6 +114,8 @@ class GRPOTrainer(GRPOTrainer):
         self.grpo_weight = grpo_weight
         self.nll_weight = nll_weight
         self.pro_loss_weight = pro_loss_weight
+        self.train_temperature = train_temperature
+        self.use_train_temp_schedule = use_train_temp_schedule
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -785,7 +789,12 @@ class GRPOTrainer(GRPOTrainer):
         logits = logits[:, -logits_to_keep:]
         # Divide logits by sampling temperature.
         # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
-        logits = logits / self.temperature
+        _temp = self.train_temperature
+        if self.use_train_temp_schedule:
+            # Linearly scale temperature to 1 starting from 0 based on global training step
+            _temp = self.train_temperature * (self.state.global_step / self.state.max_steps)
+            _temp += (0 if _temp > 0 else 1e-2)
+        logits = logits / _temp
         return selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):

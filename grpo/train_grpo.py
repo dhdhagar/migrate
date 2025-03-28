@@ -76,6 +76,8 @@ def parse_arguments():
     parser.add_argument("--grpo_weight", type=float, default=1.0)
     parser.add_argument("--nll_weight", type=float, default=0.0)
     parser.add_argument("--pro_loss_weight", type=float, default=0.0)
+    parser.add_argument("--train_temperature", type=float, default=1.0)
+    parser.add_argument("--use_train_temp_schedule", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--wandb_prefix", type=str, default=None)
     args = parser.parse_args()
     return args
@@ -213,6 +215,8 @@ def main(params):
         grpo_weight=params["grpo_weight"],
         nll_weight=params["nll_weight"],
         pro_loss_weight=params["pro_loss_weight"],
+        train_temperature=params["train_temperature"],
+        use_train_temp_schedule=params["use_train_temp_schedule"],
         callbacks=[CustomProgressCallback()]
     )
     start_time = time.time()
