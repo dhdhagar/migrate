@@ -262,7 +262,7 @@ class GRPOTrainer(GRPOTrainer):
             {
                 "prompts": prompts_text,
                 "results": [{"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in
-                            results.items()]
+                            sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)]
             }
         )
         with open(self.logfile, "w") as file:

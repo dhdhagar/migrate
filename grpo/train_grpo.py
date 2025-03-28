@@ -223,6 +223,7 @@ def main(params):
     with open(logfile, "w") as file:
         json.dump(data, file, indent=2)
 
+    print("\n==================\nRUNNING ON TEST\n==================")
     if params["task"] == "arc":
         with torch.no_grad():
             prompts = test_dataset["dataset"]
@@ -291,8 +292,17 @@ def main(params):
             results[parsed_completion]["count"] += 1
 
         data["final_sample"] = [
-            {"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in results.items()
+            {"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in
+            sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
         ]
+        data["test_solved"] = data["final_sample"][0]["score"] == 1.0
+        data["test_best"] = [{"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in
+                             sorted(results.items(), key=lambda x: x[1]["score"], reverse=True)][0]
+
+        print(f"TEST SOLVED: {data['test_solved']}")
+        if not data["test_solved"]:
+            print(f"BEST COMPLETION: {data['test_best']}")
+
         with open(logfile, "w") as file:
             json.dump(data, file, indent=4)
 
