@@ -79,6 +79,7 @@ def parse_arguments():
     parser.add_argument("--train_temperature", type=float, default=1.0)
     parser.add_argument("--use_train_temp_schedule", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--wandb_prefix", type=str, default=None)
+    parser.add_argument("--only_inference", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
     return args
 
@@ -177,59 +178,63 @@ def main(params):
 
     logdir, logfile, wandb_id = setup_logging(params)
 
-    training_args = GRPOConfig(
-        output_dir="GRPO",
-        logging_steps=1,
-        fp16=False,
-        bf16=True,
-        learning_rate=params["learning_rate"],
-        per_device_train_batch_size=params["batch_size"],
-        gradient_accumulation_steps=params["grad_acc_steps"],
-        num_train_epochs=params["num_train_epochs"],
-        temperature=params["online_temperature"],
-        num_generations=params["num_generations"],
-        max_completion_length=params["online_max_completion_length"],
-        beta=params["beta"],
-        report_to="wandb",
-        run_name=wandb_id,
-        use_vllm=params["use_vllm"],
-        max_prompt_length=None,
-        disable_tqdm=True  # To avoid double tqdm bars because of CustomProgressCallback
-    )
-    trainer = GRPOTrainer(
-        model=model,
-        processing_class=tokenizer,
-        # peft_config=peft_config, # no need with unsloth
-        reward_funcs=reward_len,  # Placeholder reward func
-        args=training_args,
-        train_dataset=training_dataset,
-        validation_example=validation_dataset,
-        validation_interval=params["validation_interval"],
-        logfile=logfile,
-        target=params["target"],
-        strategy=params["strategy"],
-        sample_related=params["related"],
-        task=params["task"],
-        arc_dataset_file=params["arc_dataset_file"],
-        generation_args={},
-        grpo_weight=params["grpo_weight"],
-        nll_weight=params["nll_weight"],
-        pro_loss_weight=params["pro_loss_weight"],
-        train_temperature=params["train_temperature"],
-        use_train_temp_schedule=params["use_train_temp_schedule"],
-        callbacks=[CustomProgressCallback()]
-    )
-    start_time = time.time()
+    if not params["only_inference"]:
+        training_args = GRPOConfig(
+            output_dir="GRPO",
+            logging_steps=1,
+            fp16=False,
+            bf16=True,
+            learning_rate=params["learning_rate"],
+            per_device_train_batch_size=params["batch_size"],
+            gradient_accumulation_steps=params["grad_acc_steps"],
+            num_train_epochs=params["num_train_epochs"],
+            temperature=params["online_temperature"],
+            num_generations=params["num_generations"],
+            max_completion_length=params["online_max_completion_length"],
+            beta=params["beta"],
+            report_to="wandb",
+            run_name=wandb_id,
+            use_vllm=params["use_vllm"],
+            max_prompt_length=None,
+            disable_tqdm=True  # To avoid double tqdm bars because of CustomProgressCallback
+        )
+        trainer = GRPOTrainer(
+            model=model,
+            processing_class=tokenizer,
+            # peft_config=peft_config, # no need with unsloth
+            reward_funcs=reward_len,  # Placeholder reward func
+            args=training_args,
+            train_dataset=training_dataset,
+            validation_example=validation_dataset,
+            validation_interval=params["validation_interval"],
+            logfile=logfile,
+            target=params["target"],
+            strategy=params["strategy"],
+            sample_related=params["related"],
+            task=params["task"],
+            arc_dataset_file=params["arc_dataset_file"],
+            generation_args={},
+            grpo_weight=params["grpo_weight"],
+            nll_weight=params["nll_weight"],
+            pro_loss_weight=params["pro_loss_weight"],
+            train_temperature=params["train_temperature"],
+            use_train_temp_schedule=params["use_train_temp_schedule"],
+            callbacks=[CustomProgressCallback()]
+        )
+        start_time = time.time()
 
-    trainer.train()
+        trainer.train()
+        _model_for_inference = trainer.model
 
-    # Log training time
-    train_time = time.time() - start_time
-    with open(logfile, "r") as file:
-        data = json.load(file)
-        data["duration"] = train_time
-    with open(logfile, "w") as file:
-        json.dump(data, file, indent=2)
+        # Log training time
+        train_time = time.time() - start_time
+        with open(logfile, "r") as file:
+            data = json.load(file)
+            data["duration"] = train_time
+        with open(logfile, "w") as file:
+            json.dump(data, file, indent=2)
+    else:
+        _model_for_inference = model
 
     print("\n==================\nRUNNING ON TEST\n==================")
     if params["task"] == "arc":
@@ -273,7 +278,7 @@ def main(params):
                 )
                 prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
                 # Regular generation path
-                with unwrap_model_for_generation(trainer.model, trainer.accelerator) as unwrapped_model:
+                with unwrap_model_for_generation(_model_for_inference, trainer.accelerator) as unwrapped_model:
                     completion_ids = unwrapped_model.generate(
                         input_ids=prompt_ids.to(DEVICE),
                         attention_mask=prompt_mask.to(DEVICE),
