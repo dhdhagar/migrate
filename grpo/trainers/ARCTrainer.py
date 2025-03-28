@@ -826,7 +826,7 @@ class GRPOTrainer(GRPOTrainer):
                 sorted_completion_logps = sorted_completion_logps.unsqueeze(0)
             # Get the first negative advantage in the sorted order
             breakpoint()
-            first_zero_or_negative = int(torch.where(inputs["advantages"][sorted_order] <= 0)[0].item())
+            first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
             _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps,
                                                                   start_neg_idx_to_ignore=first_zero_or_negative + 1)
             if loss is None or loss == 0:
