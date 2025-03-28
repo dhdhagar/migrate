@@ -382,6 +382,7 @@ class GRPOTrainer(GRPOTrainer):
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
                 idx = random.randint(0, len(completions) - 1)
+                self.greedy_idx_replaced = idx
                 completions[idx] = best_guess[0]
                 rewards[idx] = best_guess[1]
         elif self.strategy == "Greedy_Batch_Mean":
@@ -734,6 +735,7 @@ class GRPOTrainer(GRPOTrainer):
         return selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        loss = None
         # loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
@@ -745,6 +747,17 @@ class GRPOTrainer(GRPOTrainer):
 
         if self.nll_weight > 0:
             breakpoint()
+            completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[:,
+                                                                                                    -logits_to_keep:].sum(
+                dim=1)
+            oracle_logp = completion_logps[self.greedy_idx_replaced]
+            nll_loss = self.nll_weight * -oracle_logp
+            if loss is None or loss == 0:
+                loss = nll_loss
+            else:
+                loss += nll_loss
+            self._metrics["train"]["nll_loss"].append(nll_loss.item())
+            # self.past_guesses[str(self.arc_sol)]
             # self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
 
         return loss
