@@ -12,7 +12,7 @@ from trl import (
     apply_chat_template,
 )
 from trl.models.utils import unwrap_model_for_generation
-from trl.trainer.utils import print_prompt_completions_sample
+from trl.trainer.utils import print_prompt_completions_sample, selective_log_softmax
 
 from trl.extras.profiling import profiling_context
 from trl.import_utils import is_rich_available
@@ -732,7 +732,7 @@ class GRPOTrainer(GRPOTrainer):
         # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
         logits = logits / self.temperature
         breakpoint()
-        return GRPOTrainer.selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
+        return selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
