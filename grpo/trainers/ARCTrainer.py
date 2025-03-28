@@ -443,6 +443,11 @@ class GRPOTrainer(GRPOTrainer):
                 wandb.log({"train/reward_minus_replacement_mean": mean_reward_minus_replacement})
                 self.progress_callback.train_acc_max = np.round(max_reward_minus_replacement, 4)
                 wandb.log({"train/reward_minus_replacement_max": max_reward_minus_replacement})
+
+                # Early stop if both mean is 1
+                if mean_reward_minus_replacement == 1.0:
+                    self.control.should_training_stop = True
+                    print("EARLY STOPPING: Training reached 100% accuracy.")
         elif self.strategy == "Greedy_Batch_Mean":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
