@@ -62,6 +62,7 @@ class GRPOTrainer(GRPOTrainer):
             validation_example,
             validation_interval,
             generation_args,
+            grpo_weight,
             nll_weight,
             *args,
             **kwargs,
@@ -83,6 +84,7 @@ class GRPOTrainer(GRPOTrainer):
         self.validation_interval = validation_interval
 
         self.generation_args = generation_args
+        self.grpo_weight = grpo_weight
         self.nll_weight = nll_weight
 
     # Compute black-box score
