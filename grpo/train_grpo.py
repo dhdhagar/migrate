@@ -295,8 +295,10 @@ def main(params):
             {"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in
             sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
         ]
-        data["test_solved"] = data["test_samples"][0]["score"] == 1.0
-        data["test_best"] = sorted(data["test_samples"], key=lambda x: x[1]["score"], reverse=True)[0]
+        data["test_majority"] = data["test_samples"][0]
+        data["test_best"] = sorted(data["test_samples"], key=lambda x: x["score"], reverse=True)[0]
+        data["test_solved_majority"] = data["test_samples"][0]["score"] == 1.0
+        data["test_solved_oracle"] = data["test_best"]["score"] == 1.0
 
         print(f"TEST SOLVED: {data['test_solved']}")
         if not data["test_solved"]:

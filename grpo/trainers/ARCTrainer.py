@@ -244,6 +244,7 @@ class GRPOTrainer(GRPOTrainer):
         sorted_majority = sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
         if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]) and sorted_majority[0][1]["count"] > 1:
             self.control.should_training_stop = True
+            print("EARLY STOPPING: Validation majority voting reached 100% accuracy.")
 
         # Update training bar
         self.progress_callback.val_acc = np.round(sorted_majority[0][1]["score"], 4)
