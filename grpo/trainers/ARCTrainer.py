@@ -52,18 +52,19 @@ def log_response(response, logfile):
 
 class GRPOTrainer(GRPOTrainer):
     def __init__(
-        self,
-        target,
-        strategy,
-        logfile,
-        sample_related,
-        task,
-        arc_dataset_file,
-        validation_example,
-        validation_interval,
-        generation_args,
-        *args,
-        **kwargs,
+            self,
+            target,
+            strategy,
+            logfile,
+            sample_related,
+            task,
+            arc_dataset_file,
+            validation_example,
+            validation_interval,
+            generation_args,
+            nll_weight,
+            *args,
+            **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.iteration = 0
@@ -82,6 +83,7 @@ class GRPOTrainer(GRPOTrainer):
         self.validation_interval = validation_interval
 
         self.generation_args = generation_args
+        self.nll_weight = nll_weight
 
     # Compute black-box score
     def get_bb_score(self, completion1, completion2, verbose=True):
@@ -121,7 +123,7 @@ class GRPOTrainer(GRPOTrainer):
             )
 
         related_completions = self.processing_class.decode(
-            completion_ids[0, prompt_ids.size(1) :], skip_special_tokens=True
+            completion_ids[0, prompt_ids.size(1):], skip_special_tokens=True
         )
         try:
             related_completions = json.loads(related_completions)["response"]
@@ -178,7 +180,7 @@ class GRPOTrainer(GRPOTrainer):
             )
             prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
             with unwrap_model_for_generation(
-                self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
+                    self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
             ) as unwrapped_model:
                 completion_ids = unwrapped_model.generate(
                     input_ids=prompt_ids.to(self.args.device),
@@ -242,7 +244,7 @@ class GRPOTrainer(GRPOTrainer):
         return inputs
 
     def _generate_and_score_completions(
-        self, inputs: dict[str, Union[torch.Tensor, Any]]
+            self, inputs: dict[str, Union[torch.Tensor, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         # Run validation check
 
@@ -272,8 +274,8 @@ class GRPOTrainer(GRPOTrainer):
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
 
         if self.max_prompt_length is not None:
-            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+            prompt_ids = prompt_ids[:, -self.max_prompt_length:]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length:]
 
         responses = []
         bb_scores = []
@@ -318,7 +320,7 @@ class GRPOTrainer(GRPOTrainer):
         else:
             # Regular generation path
             with unwrap_model_for_generation(
-                self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
+                    self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
             ) as unwrapped_model:
                 completion_ids = unwrapped_model.generate(
                     input_ids=prompt_ids.to(device),
@@ -360,7 +362,7 @@ class GRPOTrainer(GRPOTrainer):
             scores = list(itertools.chain.from_iterable(bb_scores))
             word_scores = [[word, score] for word, score in zip(completions, scores)]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             completions = [[x[0][0], x[1][0]] for x in word_scores]
             rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
         elif self.strategy == "Online_Batch_Max":
@@ -368,7 +370,7 @@ class GRPOTrainer(GRPOTrainer):
             scores = list(itertools.chain.from_iterable(bb_scores))
             word_scores = [[word, score] for word, score in zip(completions, scores)]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             completions = [[x[0][0], x[1][0]] for x in word_scores]
             rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
         elif self.strategy == "Greedy_Single":
@@ -385,7 +387,7 @@ class GRPOTrainer(GRPOTrainer):
             scores = list(itertools.chain.from_iterable(bb_scores))
             word_scores = [[word, score] for word, score in zip(completions, scores)]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             # Substitute a random guess batch with the best guess batch so far
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[:2]
@@ -398,7 +400,7 @@ class GRPOTrainer(GRPOTrainer):
             scores = list(itertools.chain.from_iterable(bb_scores))
             word_scores = [[word, score] for word, score in zip(completions, scores)]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             # Substitute a random guess batch with the best guess batch so far
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[:2]
@@ -419,7 +421,7 @@ class GRPOTrainer(GRPOTrainer):
                 past_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
                 word_scores = word_scores + past_guesses[:2] + past_guesses[-2:]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             completions = [[x[0][0], x[1][0]] for x in word_scores]
             rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
         elif self.strategy == "TopDelta_Batch_Max":
@@ -432,7 +434,7 @@ class GRPOTrainer(GRPOTrainer):
                 past_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
                 word_scores = word_scores + past_guesses[:2] + past_guesses[-2:]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             completions = [[x[0][0], x[1][0]] for x in word_scores]
             rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
         elif self.strategy == "Greedy_Batch_Mean_Related":
@@ -440,7 +442,7 @@ class GRPOTrainer(GRPOTrainer):
             scores = list(itertools.chain.from_iterable(bb_scores))
             word_scores = [[word, score] for word, score in zip(completions, scores)]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             # Substitute a random guess batch with the best guess batch so far
             best_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
             if len(self.past_guesses) > 0:
@@ -464,7 +466,7 @@ class GRPOTrainer(GRPOTrainer):
                 word_scores = related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[idx[2]]
                 word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
                 # word_scores = old_best + word_scores
-                word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                 completions = [[x[0][0], x[1][0]] for x in word_scores]
                 rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
                 print("AFTER", completions)
@@ -474,7 +476,7 @@ class GRPOTrainer(GRPOTrainer):
             scores = list(itertools.chain.from_iterable(bb_scores))
             word_scores = [[word, score] for word, score in zip(completions, scores)]
             word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
             # Substitute a random guess batch with the best guess batch so far
             best_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
             if len(self.past_guesses) > 0:
@@ -498,7 +500,7 @@ class GRPOTrainer(GRPOTrainer):
                 word_scores = related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[idx[2]]
                 word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
                 # word_scores = old_best + word_scores
-                word_scores = [word_scores[i : i + 2] for i in range(0, len(word_scores), 2)]
+                word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
                 completions = [[x[0][0], x[1][0]] for x in word_scores]
                 rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
                 print("AFTER", completions)
@@ -589,7 +591,7 @@ class GRPOTrainer(GRPOTrainer):
 
         rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
         for i, (reward_func, reward_processing_class) in enumerate(
-            zip(self.reward_funcs, self.reward_processing_classes)
+                zip(self.reward_funcs, self.reward_processing_classes)
         ):
             if isinstance(reward_func, nn.Module):  # Module instead of PretrainedModel for compat with compiled models
                 reward_func_name = f"reward {reward_func.config._name_or_path.split('/')[-1]}"
@@ -597,7 +599,7 @@ class GRPOTrainer(GRPOTrainer):
                 reward_func_name = reward_func.__name__
             with profiling_context(self, reward_func_name):
                 if isinstance(
-                    reward_func, nn.Module
+                        reward_func, nn.Module
                 ):  # Module instead of PretrainedModel for compat with compiled models
                     if is_conversational(inputs[0]):
                         messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
@@ -714,3 +716,20 @@ class GRPOTrainer(GRPOTrainer):
             "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
         }
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+
+        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+        completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+        input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
+        attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
+        logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
+        per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep)
+
+        if self.nll_weight > 0:
+            print(per_token_logps)
+            breakpoint()
+            # self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
+
+        return loss

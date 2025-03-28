@@ -73,6 +73,8 @@ def parse_arguments():
     parser.add_argument("--maximum_training_size", type=int, default=80)
     parser.add_argument("--validation_interval", type=int, default=5)
     parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--grpo_weight", type=float, default=1.0)
+    parser.add_argument("--nll_weight", type=float, default=0.0)
     args = parser.parse_args()
     return args
 
@@ -203,6 +205,8 @@ def main(params):
         task=params["task"],
         arc_dataset_file=params["arc_dataset_file"],
         generation_args={},
+        grpo_weight=params["grpo_weight"],
+        nll_weight=params["nll_weight"],
     )
     start_time = time.time()
 
