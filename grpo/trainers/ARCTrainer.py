@@ -64,9 +64,9 @@ class CustomProgressCallback(ProgressCallback):
         if state.is_world_process_zero:
             self.training_bar.set_postfix({
                 "loss": self.loss,
-                "train_acc_mean": self.train_acc,
-                "train_acc_max": self.train_acc_max,
-                "val_acc": self.val_acc,
+                "train_reward_mean": self.train_acc,
+                "train_reward_max": self.train_acc_max,
+                "val_reward_majority": self.val_acc,
             })
 
     def on_log(self, args, state, control, logs=None, **kwargs):
@@ -247,6 +247,9 @@ class GRPOTrainer(GRPOTrainer):
 
         # Update training bar
         self.progress_callback.val_acc = np.round(sorted_majority[0][1]["score"], 4)
+        wandb.log({"validation/majority_reward": sorted_majority[0][1]["score"]})
+        wandb.log({"validation/majority_count": sorted_majority[0][1]["count"]})
+        wandb.log({"validation/total_count": len(completions)})
 
         # print("VALIDATION SOLUTION", self.validation_example["solution"])
         # print("VALIDATION ATTEMPT", sorted_majority[0][0])
@@ -428,7 +431,9 @@ class GRPOTrainer(GRPOTrainer):
                     [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
                 # Update training bar
                 self.progress_callback.train_acc = np.round(mean_reward_minus_replacement, 4)
+                wandb.log({"train/reward_minus_replacement_mean": mean_reward_minus_replacement})
                 self.progress_callback.train_acc_max = np.round(max_reward_minus_replacement, 4)
+                wandb.log({"train/reward_minus_replacement_max": max_reward_minus_replacement})
         elif self.strategy == "Greedy_Batch_Mean":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
