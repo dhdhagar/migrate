@@ -238,6 +238,7 @@ def main(params):
             json.dump(data, file, indent=2)
     else:
         _model_for_inference = model
+        wandb.init(project="ttt-arc", id=wandb_id)
 
     print("\n==================\nRUNNING ON TEST\n==================")
     if params["task"] == "arc":
