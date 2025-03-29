@@ -109,9 +109,10 @@ def setup_logging(params):
     wandb_id = f'{params["strategy"]}-{params["target"]}-{timestamp}'
     if params["wandb_prefix"] is not None:
         wandb_id = f"{params['wandb_prefix']}-{wandb_id}"
+    init_data = {"params": params, "guesses": [], "validation": []}
     with open(logfile, "w") as file:
-        file.write(json.dumps({"params": params, "guesses": [], "validation": []}, indent=2))
-    return logdir, logfile, wandb_id
+        file.write(json.dumps(init_data, indent=2))
+    return init_data, logdir, logfile, wandb_id
 
 
 def setup_model(params):
@@ -176,7 +177,7 @@ def main(params):
     # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)
 
-    logdir, logfile, wandb_id = setup_logging(params)
+    data, logdir, logfile, wandb_id = setup_logging(params)
 
     training_args = GRPOConfig(
         output_dir="GRPO",
