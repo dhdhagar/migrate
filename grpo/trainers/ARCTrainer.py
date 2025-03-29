@@ -91,6 +91,7 @@ class GRPOTrainer(GRPOTrainer):
             pro_loss_weight,
             train_temperature=1.0,
             use_train_temp_schedule=False,
+            inf_batch_size=10,
             *args,
             **kwargs,
     ):
@@ -116,6 +117,7 @@ class GRPOTrainer(GRPOTrainer):
         self.pro_loss_weight = pro_loss_weight
         self.train_temperature = train_temperature
         self.use_train_temp_schedule = use_train_temp_schedule
+        self.inf_batch_size = inf_batch_size
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -215,20 +217,26 @@ class GRPOTrainer(GRPOTrainer):
             prompt_inputs = self.processing_class(
                 prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
             )
-            prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
-            with unwrap_model_for_generation(
-                    self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
-            ) as unwrapped_model:
-                completion_ids = unwrapped_model.generate(
-                    input_ids=prompt_ids.to(self.args.device),
-                    attention_mask=prompt_mask.to(self.args.device),
-                    do_sample=False,
-                    max_new_tokens=self.max_completion_length,
-                )
-                prompt_length = prompt_inputs["input_ids"].size(1)
-                completions = self.processing_class.batch_decode(
-                    completion_ids[:, prompt_length:], skip_special_tokens=True
-                )
+            completions = []
+            for i in range(0, len(prompt_inputs["input_ids"]), self.inf_batch_size):
+                prompt_ids, prompt_mask = prompt_inputs["input_ids"][i:i + self.inf_batch_size], prompt_inputs[
+                                                                                                     "attention_mask"][
+                                                                                                 i:i + self.inf_batch_size
+                                                                                                 ]
+                with unwrap_model_for_generation(self.model_wrapped, self.accelerator,
+                                                 gather_deepspeed3_params=self.args.ds3_gather_for_generation) as unwrapped_model:
+                    completion_ids = unwrapped_model.generate(
+                        input_ids=prompt_ids.to(self.args.device),
+                        attention_mask=prompt_mask.to(self.args.device),
+                        do_sample=False,
+                        max_new_tokens=self.max_completion_length,
+                    )
+                    prompt_length = prompt_inputs["input_ids"].size(1)
+                    completions.extend(
+                        self.processing_class.batch_decode(
+                            completion_ids[:, prompt_length:], skip_special_tokens=True
+                        )
+                    )
 
         # Aggregate results
         results = {}
@@ -370,19 +378,25 @@ class GRPOTrainer(GRPOTrainer):
             completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
         else:
             # Regular generation path
-            with unwrap_model_for_generation(
-                    self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
-            ) as unwrapped_model:
-                completion_ids = unwrapped_model.generate(
-                    input_ids=prompt_ids.to(device),
-                    attention_mask=prompt_mask.to(device),
-                    generation_config=self.generation_config,
-                    **self.generation_args,
-                )
-                prompt_length = prompt_inputs["input_ids"].size(1)
-                completions = self.processing_class.batch_decode(
-                    completion_ids[:, prompt_length:], skip_special_tokens=True
-                )
+            completions = []
+            for i in range(0, len(prompt_ids), self.inf_batch_size):
+                _prompt_ids, _prompt_mask = prompt_ids[i:i + self.inf_batch_size], prompt_mask[
+                                                                                   i:i + self.inf_batch_size
+                                                                                   ]
+                with unwrap_model_for_generation(self.model_wrapped, self.accelerator,
+                                                 gather_deepspeed3_params=self.args.ds3_gather_for_generation) as unwrapped_model:
+                    completion_ids = unwrapped_model.generate(
+                        input_ids=_prompt_ids.to(device),
+                        attention_mask=_prompt_mask.to(device),
+                        generation_config=self.generation_config,
+                        **self.generation_args,
+                    )
+                    prompt_length = _prompt_ids.size(1)
+                    completions.extend(
+                        self.processing_class.batch_decode(
+                            completion_ids[:, prompt_length:], skip_special_tokens=True
+                        )
+                    )
 
         for completion in completions:
             guesses = [arc_utils.parse_response(completion)]

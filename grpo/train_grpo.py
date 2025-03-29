@@ -80,6 +80,7 @@ def parse_arguments():
     parser.add_argument("--use_train_temp_schedule", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--wandb_prefix", type=str, default=None)
     parser.add_argument("--only_inference", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--inf_batch_size", type=int, default=10)
     args = parser.parse_args()
     return args
 
@@ -219,6 +220,7 @@ def main(params):
         pro_loss_weight=params["pro_loss_weight"],
         train_temperature=params["train_temperature"],
         use_train_temp_schedule=params["use_train_temp_schedule"],
+        inf_batch_size=params["inf_batch_size"],
         callbacks=[CustomProgressCallback()]
     )
 
@@ -280,19 +282,23 @@ def main(params):
                 prompt_inputs = tokenizer(
                     prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
                 )
-                prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
-                # Regular generation path
-                with unwrap_model_for_generation(_model_for_inference, trainer.accelerator) as unwrapped_model:
-                    completion_ids = unwrapped_model.generate(
-                        input_ids=prompt_ids.to(DEVICE),
-                        attention_mask=prompt_mask.to(DEVICE),
-                        do_sample=False,
-                        max_new_tokens=512,
-                    )
-                    prompt_length = prompt_inputs["input_ids"].size(1)
-                    completions = tokenizer.batch_decode(
-                        completion_ids[:, prompt_length:], skip_special_tokens=True
-                    )
+                completions = []
+                for i in range(0, len(prompt_inputs["input_ids"]), params["inf_batch_size"]):
+                    prompt_ids, prompt_mask = prompt_inputs["input_ids"][i:i + params["inf_batch_size"]], prompt_inputs["attention_mask"][
+                                                                                    i:i + params["inf_batch_size"]
+                                                                                    ]
+                    with unwrap_model_for_generation(_model_for_inference, trainer.accelerator) as unwrapped_model:
+                        completion_ids = unwrapped_model.generate(
+                            input_ids=prompt_ids.to(DEVICE),
+                            attention_mask=prompt_mask.to(DEVICE),
+                            do_sample=False,
+                            max_new_tokens=512,
+                        )
+                        prompt_length = prompt_inputs["input_ids"].size(1)
+                        completions.extend(
+                            tokenizer.batch_decode(completion_ids[:, prompt_length:], skip_special_tokens=True)
+                        )
+
 
         # Aggregate results
         results = {}
