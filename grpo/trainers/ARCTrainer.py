@@ -389,6 +389,7 @@ class GRPOTrainer(GRPOTrainer):
                         input_ids=_prompt_ids.to(device),
                         attention_mask=_prompt_mask.to(device),
                         generation_config=self.generation_config,
+                        temperature=self.temperature,
                         **self.generation_args,
                     )
                     prompt_length = _prompt_ids.size(1)
