@@ -226,6 +226,7 @@ def main(params):
         start_time = time.time()
 
         trainer.train()
+        wandb.config.update(params)
         _model_for_inference = trainer.model
 
         # Log training time
