@@ -69,8 +69,8 @@ def parse_arguments():
     parser.add_argument("--save_model", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--all_combinations", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--minimum_training_size", type=int, default=50)
-    parser.add_argument("--maximum_training_size", type=int, default=80)
+    parser.add_argument("--minimum_training_size", type=int, default=64)
+    parser.add_argument("--maximum_training_size", type=int, default=64)
     parser.add_argument("--validation_interval", type=int, default=5)
     parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--grpo_weight", type=float, default=1.0)
@@ -81,6 +81,8 @@ def parse_arguments():
     parser.add_argument("--wandb_prefix", type=str, default=None)
     parser.add_argument("--only_inference", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--inf_batch_size", type=int, default=10)
+    parser.add_argument("--save_datasets", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--maximum_eval_size", type=int, default=64)
     args = parser.parse_args()
     return args
 
@@ -98,6 +100,7 @@ def create_dataset(params):
             params["arc_dataset_solutions_file"],
             minimum_training_size=params["minimum_training_size"],
             maximum_training_size=params["maximum_training_size"],
+            maximum_eval_size=params["maximum_eval_size"],
             do_permutation=params["all_combinations"],
         )
 
@@ -173,7 +176,13 @@ def reward_len(completions, **kwargs):
 def main(params):
     training_dataset, validation_dataset, test_dataset = create_dataset(params)
     print(len(training_dataset))
-    # dataset = [dataset[0].copy() for i in range(100)]
+    if params["save_datasets"]:
+        with open("training_dataset.json", "w") as file:
+            json.dump(training_dataset, file, indent=2)
+        with open("validation_dataset.json", "w") as file:
+            json.dump(validation_dataset, file, indent=2)
+        with open("test_dataset.json", "w") as file:
+            json.dump(test_dataset, file, indent=2)
 
     # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)

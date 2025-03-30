@@ -295,6 +295,7 @@ class GRPOTrainer(GRPOTrainer):
             data = json.load(file)
         data["validation"].append(
             {
+                "iteration": self.iteration,
                 "prompts": prompts_text,
                 "results": [{"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in
                             sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)]
@@ -765,7 +766,10 @@ class GRPOTrainer(GRPOTrainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         loss = None
-        # loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+
+        if self.grpo_weight > 0:
+            return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+            # TODO: Add support for using GRPO + NLL
 
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
@@ -811,4 +815,5 @@ class GRPOTrainer(GRPOTrainer):
 
         self.progress_callback.loss = np.round(loss.item(), 4)
 
+        assert loss is not None, "At least one of the losses should be computed"
         return loss
