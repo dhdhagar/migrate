@@ -51,6 +51,7 @@ def parse_arguments():
     parser.add_argument("--batch_size", type=int, default=5)
     parser.add_argument("--grad_acc_steps", type=int, default=1)
     parser.add_argument("--num_generations", type=int, default=5)
+    parser.add_argument("--num_generations", type=int, default=10)
     parser.add_argument("--online_temperature", type=float, default=1.0)
     parser.add_argument("--online_max_completion_length", type=int, default=512)
     parser.add_argument("--beta", type=float, default=0.0)
@@ -71,6 +72,8 @@ def parse_arguments():
     parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--minimum_training_size", type=int, default=50)
     parser.add_argument("--maximum_training_size", type=int, default=80)
+    parser.add_argument("--max_validation_size", type=int, default=64)
+    parser.add_argument("--max_test_size", type=int, default=64)
     parser.add_argument("--validation_interval", type=int, default=5)
     parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
@@ -86,11 +89,7 @@ def create_dataset(params):
     else:
         return prompts_getter.get_arc_datasets(
             params["target"],
-            params["arc_dataset_file"],
-            params["arc_dataset_solutions_file"],
-            minimum_training_size=params["minimum_training_size"],
-            maximum_training_size=params["maximum_training_size"],
-            do_permutation=params["all_combinations"],
+            **{k: v for k, v in params.items() if k in prompts_getter.get_arc_datasets.__code__.co_varnames},
         )
 
 
