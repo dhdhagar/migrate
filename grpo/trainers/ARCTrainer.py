@@ -150,24 +150,44 @@ class GRPOTrainer(GRPOTrainer):
         )
         inputs = super()._prepare_inputs(prompt_inputs)
 
-        prompt_ids = inputs["input_ids"]
-        prompt_mask = inputs["attention_mask"]
-        with unwrap_model_for_generation(self.model_wrapped, self.accelerator) as unwrapped_model:
-            completion_ids = unwrapped_model.generate(
-                input_ids=prompt_ids,
-                attention_mask=prompt_mask,
-                generation_config=self.generation_config,
-                **self.generation_args,
+        completions = []
+        for i in range(0, len(prompt_inputs["input_ids"]), self.inf_batch_size):
+            prompt_ids, prompt_mask = prompt_inputs["input_ids"][i:i + self.inf_batch_size], prompt_inputs[
+                                                                                                 "attention_mask"][
+                                                                                             i:i + self.inf_batch_size
+                                                                                             ]
+            with unwrap_model_for_generation(self.model_wrapped, self.accelerator,
+                                             gather_deepspeed3_params=self.args.ds3_gather_for_generation) as unwrapped_model:
+                completion_ids = unwrapped_model.generate(
+                    input_ids=prompt_ids.to(self.args.device),
+                    attention_mask=prompt_mask.to(self.args.device),
+                    temperature=self.temperature,
+                    max_new_tokens=self.max_completion_length,
+                    generation_config=self.generation_config,
+                    **self.generation_args,
+                )
+                prompt_length = prompt_inputs["input_ids"].size(1)
+                completions.extend(
+                    self.processing_class.batch_decode(
+                        completion_ids[:, prompt_length:], skip_special_tokens=True
+                    )
+                )
+        results = {}
+        for completion in completions:
+            parsed_completion = arc_utils.parse_response(completion)
+            parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
+            # Get black-box score if completion is valid otherwise 0
+            score = (
+                self.get_bb_score(self.validation_example["solution"], parsed_completion)
+                if isinstance(parsed_completion, np.ndarray)
+                else 0
             )
+            parsed_completion = str(parsed_completion)
+            # Track completions and their scores
+            results[parsed_completion] = results.get(parsed_completion, {"score": score, "count": 0})
+            results[parsed_completion]["count"] += 1
 
-        related_completions = self.processing_class.decode(
-            completion_ids[0, prompt_ids.size(1):], skip_special_tokens=True
-        )
-        try:
-            related_completions = json.loads(related_completions)["response"]
-            return related_completions
-        except Exception as _:
-            return None
+        return results
 
     def run_validation(self):
         print("\n==================\nRUNNING VALIDATION\n==================")
@@ -329,7 +349,6 @@ class GRPOTrainer(GRPOTrainer):
         prompt_inputs = self.processing_class(
             prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
         )
-        # prompt_inputs = super()._prepare_inputs(prompt_inputs)
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
 
         if self.max_prompt_length is not None:
@@ -390,6 +409,7 @@ class GRPOTrainer(GRPOTrainer):
                         attention_mask=_prompt_mask.to(device),
                         generation_config=self.generation_config,
                         temperature=self.temperature,
+                        max_new_tokens=self.max_completion_length,
                         **self.generation_args,
                     )
                     prompt_length = _prompt_ids.size(1)
@@ -662,77 +682,18 @@ class GRPOTrainer(GRPOTrainer):
 
         # Decode the generated completions
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-        if is_conversational(inputs[0]):
-            completions = []
-            for prompt, completion in zip(prompts, completions_text):
-                bootstrap = prompt.pop()["content"] if prompt[-1]["role"] == "assistant" else ""
-                completions.append([{"role": "assistant", "content": bootstrap + completion}])
-        else:
-            completions = completions_text
 
-        rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
-        for i, (reward_func, reward_processing_class) in enumerate(
-                zip(self.reward_funcs, self.reward_processing_classes)
-        ):
-            if isinstance(reward_func, nn.Module):  # Module instead of PretrainedModel for compat with compiled models
-                reward_func_name = f"reward {reward_func.config._name_or_path.split('/')[-1]}"
-            else:
-                reward_func_name = reward_func.__name__
-            with profiling_context(self, reward_func_name):
-                if isinstance(
-                        reward_func, nn.Module
-                ):  # Module instead of PretrainedModel for compat with compiled models
-                    if is_conversational(inputs[0]):
-                        messages = [{"messages": p + c} for p, c in zip(prompts, completions)]
-                        texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
-                    else:
-                        texts = [p + c for p, c in zip(prompts, completions)]
-                    reward_inputs = reward_processing_class(
-                        text=texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
-                    )
-                    reward_inputs = super()._prepare_inputs(reward_inputs)
-                    with torch.inference_mode():
-                        rewards_per_func[:, i] = reward_func(**reward_inputs).logits[:, 0]  # Shape (B*G,)
-                else:
-                    # Repeat all input columns (but "prompt" and "completion") to match the number of generations
-                    keys = [key for key in inputs[0] if key not in ["prompt", "completion"]]
-                    reward_kwargs = {key: [example[key] for example in inputs] for key in keys}
-                    output_reward_func = reward_func(prompts=prompts, completions=completions, **reward_kwargs)
-                    # Convert None values to NaN
-                    # output_reward_func = [reward if reward is not None else torch.nan for reward in output_reward_func]
-                    output_reward_func = rewards
-
-                    rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
-
-        # If all reward functions return None for a given row, issue a detailed warning
-        if torch.isnan(rewards_per_func).all(dim=1).any():
-            nan_row_idx = torch.isnan(rewards_per_func).all(dim=1).nonzero(as_tuple=True)[0][0]
-            row_reward_kwargs = {key: value[nan_row_idx] for key, value in reward_kwargs.items()}
-            row_reward_kwargs["prompt"] = prompts[nan_row_idx]
-            row_reward_kwargs["completion"] = completions[nan_row_idx]
-            warnings.warn(
-                f"All reward functions returned None for the following kwargs: {row_reward_kwargs}. "
-                "Please ensure that at least one reward function returns a valid reward."
-            )
-
-        # Gather the reward per function: this part is crucial, because the rewards are normalized per group and the
-        # completions may be distributed across processes
-        rewards_per_func = gather(rewards_per_func)
-
-        # Apply weights to each reward function's output and sum
-        rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
-
+        # Convert rewards to tensor
+        rewards = torch.tensor(rewards, dtype=torch.float32, device=device)
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
-
         # Normalize the rewards to compute the advantages
         mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
         advantages = rewards - mean_grouped_rewards
         if self.args.scale_rewards:
             advantages = advantages / (std_grouped_rewards + 1e-4)
-
         # Slice to keep only the local part of the data
         process_slice = slice(
             self.accelerator.process_index * len(prompts),
@@ -742,31 +703,17 @@ class GRPOTrainer(GRPOTrainer):
 
         # Log the metrics
         mode = "eval" if self.control.should_evaluate else "train"
-
         if mode == "train":
             self._total_train_tokens += self.accelerator.gather_for_metrics(attention_mask.sum()).sum().item()
         self._metrics[mode]["num_tokens"] = [self._total_train_tokens]
-
         completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
         self._metrics[mode]["completion_length"].append(completion_length)
-
-        # Calculate mean reward per function, but only for samples where the function was applied
-        for i, reward_func in enumerate(self.reward_funcs):
-            if isinstance(reward_func, nn.Module):  # Module instead of PretrainedModel for compat with compiled models
-                reward_func_name = reward_func.config._name_or_path.split("/")[-1]
-            else:
-                reward_func_name = reward_func.__name__
-            # Only calculate mean for samples where this reward function was applied (non-NaN values)
-            mean_rewards = torch.nanmean(rewards_per_func[:, i]).item()
-            self._metrics[mode][f"rewards/{reward_func_name}"].append(mean_rewards)
         self._metrics[mode]["reward"].append(rewards.mean().item())
         self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item())
-
         if self.log_completions and self.state.global_step % self.args.logging_steps == 0:
             prompts_to_log = gather_object(prompts_text)
             completions_to_log = gather_object(completions_text)
             rewards_to_log = rewards.tolist()
-
             if self.accelerator.is_main_process:
                 if is_rich_available():
                     print_prompt_completions_sample(
@@ -777,7 +724,6 @@ class GRPOTrainer(GRPOTrainer):
                     )
                 if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:
                     import pandas as pd
-
                     # For logging
                     table = {
                         "step": [str(self.state.global_step)] * len(rewards),
