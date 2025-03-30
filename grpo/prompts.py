@@ -155,12 +155,18 @@ def get_arc_datasets(
         dataset = create_arc_prompts(possible_context_examples, leave_out_input, do_permutation)
         dataset = [{"prompt": x, "solution": np.array(leave_out["output"])} for x in dataset]
         training_dataset += dataset
+    random.shuffle(training_dataset)
 
     # Multiply the dataset until it's longer than the minimum length
     print("Training dataset size:", len(training_dataset))
-    training_dataset = training_dataset * ((minimum_training_size // len(training_dataset)) + 1)
-    random.shuffle(training_dataset)
-    training_dataset = training_dataset[:maximum_training_size]
+    if len(training_dataset) < minimum_training_size:
+        training_dataset = training_dataset * ((minimum_training_size // len(training_dataset)) + 1)
+        print("Extending training dataset to:", len(training_dataset))
+    if len(training_dataset) > maximum_training_size:
+        # Sort by prompt length
+        training_dataset = sorted(training_dataset, key=lambda x: len(x["prompt"]))
+        training_dataset = training_dataset[-maximum_training_size:]
+        print("Clipping training dataset size to:", len(training_dataset))
 
     # Create validation prompts
     validation_input = str(np.array(validation_example["input"]))
