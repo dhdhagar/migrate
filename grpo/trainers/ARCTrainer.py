@@ -93,6 +93,7 @@ class GRPOTrainer(GRPOTrainer):
             use_train_temp_schedule=False,
             inf_batch_size=10,
             inject_oracle_at_lowest_score=False,
+            pro_loss_only_positive=False,
             *args,
             **kwargs,
     ):
@@ -120,6 +121,7 @@ class GRPOTrainer(GRPOTrainer):
         self.use_train_temp_schedule = use_train_temp_schedule
         self.inf_batch_size = inf_batch_size
         self.inject_oracle_at_lowest_score = inject_oracle_at_lowest_score
+        self.pro_loss_only_positive = pro_loss_only_positive
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -807,10 +809,15 @@ class GRPOTrainer(GRPOTrainer):
                 sorted_completion_logps = completion_logps[sorted_order]
                 if len(sorted_completion_logps.size()) == 1:
                     sorted_completion_logps = sorted_completion_logps.unsqueeze(0)
-                # Get the first negative advantage in the sorted order
-                first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
+
+                ignore_idx = None
+                if self.pro_loss_only_positive:
+                    # Get the first negative advantage in the sorted order
+                    first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
+                    ignore_idx = first_zero_or_negative + 1
+
                 _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps,
-                                                                      start_neg_idx_to_ignore=first_zero_or_negative + 1)
+                                                                      start_neg_idx_to_ignore=ignore_idx)
                 if loss is None or loss == 0:
                     loss = _pro_loss
                 else:
