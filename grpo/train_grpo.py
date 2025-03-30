@@ -108,7 +108,7 @@ def create_dataset(params):
 
 
 def setup_logging(params):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") if params["date"] is None else params["date"]
     logdir = f'logs/{params["strategy"]}/{params["target"]}'
     os.makedirs(logdir, exist_ok=True)
     logfile = f"{logdir}/{timestamp}.log"

@@ -280,7 +280,7 @@ class GRPOTrainer(GRPOTrainer):
         sorted_majority = sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
         if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]):  # and sorted_majority[0][1]["count"] > 1:
             self.control.should_training_stop = True
-            print("EARLY STOPPING: Validation majority voting reached 100% accuracy.")
+            print("EARLY STOPPING: Validation majority voting (pass@2) reached 100% accuracy.")
 
         # Update training bar
         self.progress_callback.val_acc = np.round(sorted_majority[0][1]["score"], 4)
@@ -306,7 +306,7 @@ class GRPOTrainer(GRPOTrainer):
         with open(self.logfile, "w") as file:
             json.dump(data, file, indent=2)
         # Print scores
-        print("Reward for the majority-voted completion: ", sorted_majority[0][1]["score"])
+        print("Reward for the top majority-voted completion: ", sorted_majority[0][1]["score"])
         print(f"Validation results saved to {self.logfile}\n")
 
     def _prepare_inputs(self, inputs: dict[str, Union[torch.Tensor, Any]]) -> dict[str, Union[torch.Tensor, Any]]:
@@ -440,6 +440,7 @@ class GRPOTrainer(GRPOTrainer):
         elif self.strategy == "Online_Single":
             completions = list(itertools.chain.from_iterable(responses))
             rewards = list(itertools.chain.from_iterable(bb_scores))
+            self.greedy_idx_replaced = None
         elif self.strategy == "Online_Mean":
             completions = responses
             rewards = [np.mean(scores) for scores in bb_scores]
@@ -475,20 +476,6 @@ class GRPOTrainer(GRPOTrainer):
                 self.greedy_idx_replaced = idx
                 completions[idx] = best_guess[0]
                 rewards[idx] = best_guess[1]
-                mean_reward_minus_replacement = np.mean(
-                    [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
-                max_reward_minus_replacement = np.max(
-                    [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
-                # Update training bar
-                self.progress_callback.train_acc = np.round(mean_reward_minus_replacement, 4)
-                wandb.log({"train/reward_minus_replacement_mean": mean_reward_minus_replacement})
-                self.progress_callback.train_acc_max = np.round(max_reward_minus_replacement, 4)
-                wandb.log({"train/reward_minus_replacement_max": max_reward_minus_replacement})
-
-                # Early stop if train reward mean is 1
-                # if mean_reward_minus_replacement == 1.0:
-                #     self.control.should_training_stop = True
-                #     print("EARLY STOPPING: Training reached 100% accuracy.")
         elif self.strategy == "Greedy_Batch_Mean":
             completions = list(itertools.chain.from_iterable(responses))
             scores = list(itertools.chain.from_iterable(bb_scores))
@@ -612,6 +599,18 @@ class GRPOTrainer(GRPOTrainer):
                 rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
                 print("AFTER", completions)
                 print("AFTER", rewards)
+
+
+        # Compute mean and max rewards excluding the "greedy" replacement
+        mean_reward_minus_replacement = np.mean(
+            [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
+        max_reward_minus_replacement = np.max(
+            [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
+        # Update training bar
+        self.progress_callback.train_acc = np.round(mean_reward_minus_replacement, 4)
+        wandb.log({"train/reward_minus_replacement_mean": mean_reward_minus_replacement})
+        self.progress_callback.train_acc_max = np.round(max_reward_minus_replacement, 4)
+        wandb.log({"train/reward_minus_replacement_max": max_reward_minus_replacement})
 
         # print("COMPLETIONS:\n", completions)
         # print("REWARDS:\n", rewards)
