@@ -43,10 +43,10 @@ def parse_arguments():
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--warmstart", type=float, default=0)
     parser.add_argument("--strategy", type=str, default="Oracle_Single")
-    parser.add_argument("--date", type=str, default="")
+    parser.add_argument("--date", type=str)
     parser.add_argument("--related", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--task", type=str, default="semantle")
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
+    parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--num_train_epochs", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=5)
     parser.add_argument("--grad_acc_steps", type=int, default=1)
@@ -84,7 +84,7 @@ def parse_arguments():
     parser.add_argument("--inf_batch_size", type=int, default=10)
     parser.add_argument("--save_datasets", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--maximum_eval_size", type=int, default=64)
-    parser.add_argument("--inject_oracle_at_lowest_score", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--inject_oracle_at_lowest_score", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     return args
 
