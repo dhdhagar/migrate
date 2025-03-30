@@ -347,6 +347,7 @@ def main(params):
         wandb.run.summary["test/solved_majority"] = data["test_solved_majority"]
         wandb.run.summary["test/solved_majority_pass2"] = data["test_solved_majority_pass2"]
         wandb.run.summary["test/solved_oracle"] = data["test_solved_oracle"]
+        wandb.run.summary["test/best_score"] = data["test_best"]["score"]
         wandb.run.summary["test/best_completion"] = data["test_best"]
 
         print(f"TEST SOLVED @ pass1: {data['test_solved_majority']}")
