@@ -68,7 +68,7 @@ def parse_arguments():
         default="kaggle/input/arc-prize-2024/arc-agi_evaluation_solutions.json",
     )
     parser.add_argument("--save_model", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--all_combinations", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--use_permutations", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--minimum_training_size", type=int, default=50)
     parser.add_argument("--maximum_training_size", type=int, default=80)

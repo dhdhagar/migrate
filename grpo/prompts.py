@@ -121,7 +121,7 @@ def get_arc_datasets(
     maximum_training_size=80,
     max_validation_size=64,
     max_test_size=64,
-    do_permutation=False,
+    use_permutations=False,
 ):
     """
     Create ARC training, validation, and testing prompt datasets.
@@ -152,7 +152,7 @@ def get_arc_datasets(
     for i, leave_out in enumerate(training_examples):
         leave_out_input = str(np.array(leave_out["input"]))
         possible_context_examples = training_examples[:i] + training_examples[i + 1 :]
-        dataset = create_arc_prompts(possible_context_examples, leave_out_input, do_permutation)
+        dataset = create_arc_prompts(possible_context_examples, leave_out_input, use_permutations)
         dataset = [{"prompt": x, "solution": np.array(leave_out["output"])} for x in dataset]
         training_dataset += dataset
     # Multiply the dataset until it's longer than the minimum length
@@ -163,11 +163,11 @@ def get_arc_datasets(
 
     all_training_examples = data[task_id]["train"]
     leave_out_input = str(np.array(data[task_id]["test"][0]["input"]))
-    test_dataset = create_arc_prompts(all_training_examples, leave_out_input, do_permutation)[-max_test_size:]
+    test_dataset = create_arc_prompts(all_training_examples, leave_out_input, use_permutations)[-max_test_size:]
     print("Test dataset size", len(test_dataset))
     test_dataset = {"dataset": test_dataset, "solution": np.array(data_solutions[task_id][0])}
 
-    dataset = create_arc_prompts(training_examples, str(np.array(validation_example["input"])), do_permutation)[
+    dataset = create_arc_prompts(training_examples, str(np.array(validation_example["input"])), use_permutations)[
         -max_validation_size:
     ]
     print("Validation dataset size", len(dataset))
