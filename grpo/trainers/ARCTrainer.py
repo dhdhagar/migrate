@@ -306,7 +306,7 @@ class GRPOTrainer(GRPOTrainer):
         with open(self.logfile, "w") as file:
             json.dump(data, file, indent=2)
         # Print scores
-        print("Reward for the top majority-voted completion: ", sorted_majority[0][1]["score"])
+        print("Reward for the top-2 majority-voted completions:", [x[1]["score"] for x in sorted_majority[:2]])
         print(f"Validation results saved to {self.logfile}\n")
 
     def _prepare_inputs(self, inputs: dict[str, Union[torch.Tensor, Any]]) -> dict[str, Union[torch.Tensor, Any]]:
