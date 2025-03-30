@@ -117,8 +117,8 @@ def get_arc_datasets(
     task_id,
     arc_dataset_file,
     arc_dataset_solutions_file,
-    minimum_training_size=50,
-    maximum_training_size=80,
+    min_training_size=50,
+    max_training_size=80,
     max_validation_size=64,
     max_test_size=64,
     use_permutations=False,
@@ -157,9 +157,10 @@ def get_arc_datasets(
         training_dataset += dataset
     # Multiply the dataset until it's longer than the minimum length
     print("Training dataset size", len(training_dataset))
-    training_dataset = training_dataset * ((minimum_training_size // len(training_dataset)) + 1)
+    training_dataset = training_dataset * ((min_training_size // len(training_dataset)) + 1)
+    print("Training dataset size", len(training_dataset))
     random.shuffle(training_dataset)
-    training_dataset = training_dataset[:maximum_training_size]
+    training_dataset = training_dataset[:max_training_size]
 
     all_training_examples = data[task_id]["train"]
     leave_out_input = str(np.array(data[task_id]["test"][0]["input"]))
