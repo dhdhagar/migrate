@@ -92,6 +92,7 @@ class GRPOTrainer(GRPOTrainer):
             train_temperature=1.0,
             use_train_temp_schedule=False,
             inf_batch_size=10,
+            inject_oracle_at_lowest_score=False,
             *args,
             **kwargs,
     ):
@@ -118,6 +119,7 @@ class GRPOTrainer(GRPOTrainer):
         self.train_temperature = train_temperature
         self.use_train_temp_schedule = use_train_temp_schedule
         self.inf_batch_size = inf_batch_size
+        self.inject_oracle_at_lowest_score = inject_oracle_at_lowest_score
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -466,7 +468,10 @@ class GRPOTrainer(GRPOTrainer):
             # Substitute a random guess with the best guess so far
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
-                idx = random.randint(0, len(completions) - 1)
+                if not self.inject_oracle_at_lowest_score:
+                    idx = random.randint(0, len(completions) - 1)
+                else:
+                    idx = np.argmin(rewards)
                 self.greedy_idx_replaced = idx
                 completions[idx] = best_guess[0]
                 rewards[idx] = best_guess[1]

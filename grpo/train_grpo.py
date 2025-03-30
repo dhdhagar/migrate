@@ -84,6 +84,7 @@ def parse_arguments():
     parser.add_argument("--inf_batch_size", type=int, default=10)
     parser.add_argument("--save_datasets", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--maximum_eval_size", type=int, default=64)
+    parser.add_argument("--inject_oracle_at_lowest_score", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
     return args
 
@@ -230,6 +231,7 @@ def main(params):
         pro_loss_weight=params["pro_loss_weight"],
         train_temperature=params["train_temperature"],
         use_train_temp_schedule=params["use_train_temp_schedule"],
+        inject_oracle_at_lowest_score=params["inject_oracle_at_lowest_score"],
         inf_batch_size=params["inf_batch_size"],
         callbacks=[CustomProgressCallback()]
     )
