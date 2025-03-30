@@ -284,9 +284,11 @@ def main(params):
                 )
                 completions = []
                 for i in range(0, len(prompt_inputs["input_ids"]), params["inf_batch_size"]):
-                    prompt_ids, prompt_mask = prompt_inputs["input_ids"][i:i + params["inf_batch_size"]], prompt_inputs["attention_mask"][
-                                                                                    i:i + params["inf_batch_size"]
-                                                                                    ]
+                    prompt_ids, prompt_mask = prompt_inputs["input_ids"][i:i + params["inf_batch_size"]], prompt_inputs[
+                                                                                                              "attention_mask"][
+                                                                                                          i:i + params[
+                                                                                                              "inf_batch_size"]
+                                                                                                          ]
                     with unwrap_model_for_generation(_model_for_inference, trainer.accelerator) as unwrapped_model:
                         completion_ids = unwrapped_model.generate(
                             input_ids=prompt_ids.to(DEVICE),
@@ -298,7 +300,6 @@ def main(params):
                         completions.extend(
                             tokenizer.batch_decode(completion_ids[:, prompt_length:], skip_special_tokens=True)
                         )
-
 
         # Aggregate results
         results = {}
@@ -321,7 +322,8 @@ def main(params):
         data["test_majority"] = data["test_samples"][0]
         data["test_best"] = sorted(data["test_samples"], key=lambda x: x["score"], reverse=True)[0]
         data["test_solved_majority"] = data["test_samples"][0]["score"] == 1.0
-        data["test_solved_majority_pass2"] = data["test_solved_majority"] or data["test_samples"][1]["score"] == 1.0
+        data["test_solved_majority_pass2"] = data["test_solved_majority"] or (
+            data["test_samples"][1]["score"] == 1.0 if len(data["test_samples"]) > 1 else False)
         data["test_solved_oracle"] = data["test_best"]["score"] == 1.0
 
         # Save these logs to wandb
@@ -339,6 +341,7 @@ def main(params):
         with open(logfile, "w") as file:
             json.dump(data, file, indent=2)
 
+        wandb.run.summary["log_fpath"] = logfile
         wandb.finish()
 
         print(f"\nLogs saved to {logfile}.")
