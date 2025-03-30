@@ -83,7 +83,7 @@ class GRPOTrainer(GRPOTrainer):
             sample_related,
             task,
             arc_dataset_file,
-            validation_example,
+            validation_dataset,
             validation_interval,
             generation_args,
             grpo_weight,
@@ -108,7 +108,7 @@ class GRPOTrainer(GRPOTrainer):
         self.arc_leave_out = None
         self.arc_past_guesses = {}
         self.arc_dataset_file = arc_dataset_file
-        self.validation_example = validation_example
+        self.validation_dataset = validation_dataset
         self.validation_interval = validation_interval
 
         self.generation_args = generation_args
@@ -178,7 +178,7 @@ class GRPOTrainer(GRPOTrainer):
             parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
             # Get black-box score if completion is valid otherwise 0
             score = (
-                self.get_bb_score(self.validation_example["solution"], parsed_completion)
+                self.get_bb_score(self.validation_dataset["solution"], parsed_completion)
                 if isinstance(parsed_completion, np.ndarray)
                 else 0
             )
@@ -191,7 +191,7 @@ class GRPOTrainer(GRPOTrainer):
 
     def run_validation(self):
         print("\n==================\nRUNNING VALIDATION\n==================")
-        prompts = self.validation_example["dataset"]
+        prompts = self.validation_dataset["dataset"]
         prompts_text = [
             maybe_apply_chat_template({"prompt": example}, self.processing_class)["prompt"] for example in prompts
         ]
@@ -265,7 +265,7 @@ class GRPOTrainer(GRPOTrainer):
             parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
             # Get black-box score if completion is valid otherwise 0
             score = (
-                self.get_bb_score(self.validation_example["solution"], parsed_completion)
+                self.get_bb_score(self.validation_dataset["solution"], parsed_completion)
                 if isinstance(parsed_completion, np.ndarray)
                 else 0
             )
@@ -286,7 +286,7 @@ class GRPOTrainer(GRPOTrainer):
         wandb.log({"validation/majority_count": sorted_majority[0][1]["count"]})
         wandb.log({"validation/total_count": len(completions)})
 
-        # print("VALIDATION SOLUTION", self.validation_example["solution"])
+        # print("VALIDATION SOLUTION", self.validation_dataset["solution"])
         # print("VALIDATION ATTEMPT", sorted_majority[0][0])
         # print("VALIDATION SCORE", sorted_majority[0][1]["score"])
 

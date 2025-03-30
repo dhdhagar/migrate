@@ -216,7 +216,7 @@ def main(params):
         reward_funcs=reward_len,  # Placeholder reward func
         args=training_args,
         train_dataset=training_dataset,
-        validation_example=validation_dataset,
+        validation_dataset=validation_dataset,
         validation_interval=params["validation_interval"],
         logfile=logfile,
         target=params["target"],
