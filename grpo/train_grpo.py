@@ -79,6 +79,7 @@ def parse_arguments():
     parser.add_argument("--train_temperature", type=float, default=1.0)
     parser.add_argument("--use_train_temp_schedule", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--wandb_prefix", type=str, default=None)
+    parser.add_argument("--wandb_tags", type=str, default=None)
     parser.add_argument("--only_inference", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--inf_batch_size", type=int, default=10)
     parser.add_argument("--save_datasets", action=argparse.BooleanOptionalAction, default=False)
@@ -250,6 +251,10 @@ def main(params):
     else:
         _model_for_inference = model
         wandb.init(project="ttt-arc", id=wandb_id)
+
+    # Update wandb run with tags
+    if params["wandb_tags"] is not None:
+        wandb.run.tags = params["wandb_tags"].split(",")
 
     print("\n==================\nRUNNING ON TEST\n==================")
     if params["task"] == "arc":
