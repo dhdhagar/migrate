@@ -27,7 +27,7 @@ def parse_response(output: str) -> np.ndarray:
     return np.array([[]])
 
 
-def parse_numpy_from_str(array_str: str) -> np.ndarray:
+def parse_numpy_from_str(array_str: str, verbose=False) -> np.ndarray:
     """
     Parses a string representation of a 2D array into a NumPy ndarray.
 
@@ -55,9 +55,10 @@ def parse_numpy_from_str(array_str: str) -> np.ndarray:
 
         return array
     except Exception as e:
-        # Print the exception message and the original string for debugging purposes
-        print(e)
-        print(array_str)
+        if verbose:
+            # Print the exception message and the original string for debugging purposes
+            print(e)
+            print(array_str)
         # Return a default 1x1 array with a zero element in case of an error
         # raise e
         return np.array([[]])
