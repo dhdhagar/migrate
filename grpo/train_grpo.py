@@ -177,19 +177,20 @@ def reward_len(completions, **kwargs):
 
 def main(params):
     training_dataset, validation_dataset, test_dataset = create_dataset(params)
-    print(len(training_dataset))
-    if params["save_datasets"]:
-        with open("training_dataset.json", "w") as file:
-            json.dump(training_dataset, file, indent=2)
-        with open("validation_dataset.json", "w") as file:
-            json.dump(validation_dataset, file, indent=2)
-        with open("test_dataset.json", "w") as file:
-            json.dump(test_dataset, file, indent=2)
 
     # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)
 
     data, logdir, logfile, wandb_id = setup_logging(params)
+
+    if params["save_datasets"]:
+        os.makedirs(logdir, exist_ok=True)
+        with open(os.path.join(logdir, "training_dataset.json"), "w") as file:
+            json.dump(training_dataset, file, indent=2)
+        with open(os.path.join(logdir, "validation_dataset.json"), "w") as file:
+            json.dump(validation_dataset, file, indent=2)
+        with open(os.path.join(logdir, "test_dataset.json"), "w") as file:
+            json.dump(test_dataset, file, indent=2)
 
     training_args = GRPOConfig(
         output_dir="GRPO",
