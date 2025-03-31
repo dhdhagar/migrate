@@ -94,6 +94,7 @@ class GRPOTrainer(GRPOTrainer):
             inf_batch_size=10,
             inject_oracle_at_lowest_score=False,
             pro_loss_only_positive=False,
+            early_stopping=True,
             *args,
             **kwargs,
     ):
@@ -122,6 +123,7 @@ class GRPOTrainer(GRPOTrainer):
         self.inf_batch_size = inf_batch_size
         self.inject_oracle_at_lowest_score = inject_oracle_at_lowest_score
         self.pro_loss_only_positive = pro_loss_only_positive
+        self.early_stopping = early_stopping
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -280,7 +282,7 @@ class GRPOTrainer(GRPOTrainer):
 
         # Do pass@2 majority voting -- also make sure majority is more than 1
         sorted_majority = sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
-        if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]):  # and sorted_majority[0][1]["count"] > 1:
+        if self.early_stopping and any(x[1]["score"] == 1.0 for x in sorted_majority[:2]):  # and sorted_majority[0][1]["count"] > 1:
             self.control.should_training_stop = True
             print("EARLY STOPPING: Validation majority voting (pass@2) reached 100% accuracy.")
 
@@ -812,9 +814,13 @@ class GRPOTrainer(GRPOTrainer):
 
                 ignore_idx = None
                 if self.pro_loss_only_positive:
-                    # Get the first negative advantage in the sorted order
-                    first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
-                    ignore_idx = first_zero_or_negative + 1
+                    try:
+                        # Get the first negative advantage in the sorted order
+                        first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
+                        ignore_idx = first_zero_or_negative + 1
+                    except:
+                        print("No negative advantage found, using all completions for PRO loss")
+                        pass
 
                 _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps,
                                                                       start_neg_idx_to_ignore=ignore_idx)

@@ -187,6 +187,7 @@ def get_arc_datasets(
         print("Clipping test dataset size to:", len(test_dataset))
     test_dataset = {"dataset": test_dataset, "solution": np.array(data_solutions[task_id][0])}
 
+    print()
     return training_dataset, validation_dataset, test_dataset
 
 
