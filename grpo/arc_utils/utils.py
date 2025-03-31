@@ -171,8 +171,8 @@ def add_to_batch(self, replacement, completions, rewards):
             self.best_idx_replaced = None
 
 
-def run_neighborhood_sampling(self, completions, rewards, gold_solution):
-    neigh_samples, neigh_scores = self.get_neighborhood_samples(self.arc_prob, gold_solution[0], self.n_neighbors)
+def run_neighborhood_sampling(self, completions, rewards, gold_solution, n_neighbors):
+    neigh_samples, neigh_scores = self.get_neighborhood_samples(self.arc_prob, gold_solution[0], n_neighbors)
     with open(self.logfile, "r") as fh:
         logdata = json.load(fh)
     if "neighborhood_samples" not in logdata:

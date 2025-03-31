@@ -46,6 +46,7 @@ def parse_arguments():
     parser.add_argument("--date", type=str)
     parser.add_argument("--neighborhood_sampling", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--neighborhood_sampling_strategy", type=str, choices=["best", "mix"], default="best")
+    parser.add_argument("--n_neighbors", type=int, default=10)
     parser.add_argument("--task", type=str, default="semantle")
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--num_train_epochs", type=int, default=15)
@@ -240,6 +241,7 @@ def main(params):
         use_early_stopping=params["use_early_stopping"],
         neighborhood_sampling=params["neighborhood_sampling"],
         neighborhood_sampling_strategy=params["neighborhood_sampling_strategy"],
+        n_neighbors=params["n_neighbors"],
         callbacks=[CustomProgressCallback()]
     )
 

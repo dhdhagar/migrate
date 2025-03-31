@@ -96,6 +96,7 @@ class GRPOTrainer(GRPOTrainer):
             use_early_stopping=True,
             neighborhood_sampling=False,
             neighborhood_sampling_strategy="best",
+            n_neighbors=10,
             *args,
             **kwargs,
     ):
@@ -107,6 +108,7 @@ class GRPOTrainer(GRPOTrainer):
         self.strategy = strategy
         self.neighborhood_sampling = neighborhood_sampling
         self.neighborhood_sampling_strategy = neighborhood_sampling_strategy
+        self.n_neighbors = n_neighbors
         self.task = task
 
         self.arc_sol = None
@@ -440,7 +442,8 @@ class GRPOTrainer(GRPOTrainer):
             gold_solution = (str(self.arc_sol), 1.0)
 
             if self.neighborhood_sampling:
-                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, gold_solution[0])
+                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, gold_solution[0],
+                                                                           n_neighbors=self.n_neighbors)
 
             arc_utils.add_to_batch(self, gold_solution, completions, rewards)
         elif self.strategy == "greedy":
@@ -450,7 +453,8 @@ class GRPOTrainer(GRPOTrainer):
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
 
             if self.neighborhood_sampling:
-                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, best_guess[0])
+                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, best_guess[0],
+                                                                           n_neighbors=self.n_neighbors)
 
             arc_utils.add_to_batch(self, best_guess, completions, rewards)
         elif self.strategy == "top_delta":
