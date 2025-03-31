@@ -42,7 +42,7 @@ def parse_arguments():
     parser.add_argument("--num_guesses", type=int, default=10)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--warmstart", type=float, default=0)
-    parser.add_argument("--strategy", type=str, default="Oracle_Single")
+    parser.add_argument("--strategy", type=str, default="gold")
     parser.add_argument("--date", type=str)
     parser.add_argument("--neighborhood_sampling", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--neighborhood_sampling_strategy", type=str, choices=["best", "mix"], default="best")
