@@ -186,7 +186,7 @@ def run_neighborhood_sampling(self, completions, rewards, gold_solution, n_neigh
         # Add neighbors to online samples and keep the best ones
         n_batch = len(completions)
         completions.extend(neigh_samples)
-        rewards.extend()
+        rewards.extend(neigh_scores)
         # Sort by reward and keep the best ones
         completions, rewards = zip(
             *sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True)[:n_batch])
