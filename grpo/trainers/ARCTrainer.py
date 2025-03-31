@@ -23,9 +23,7 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
 )
 import prompts as prompts_getter
-import arc_utils.utils as arc_utils
-
-from ..arc_utils.utils import add_to_batch, run_neighborhood_sampling
+import arc_utils.utils as arc_utils, add_to_batch, run_neighborhood_sampling
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
