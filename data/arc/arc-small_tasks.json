@@ -1,56 +1,218 @@
 {
-    "00576224": "easy",
-    "0c786b71": "medium",
-    "0c9aba6e": "expert",
-    "17cae0c1": "medium",
-    "195ba7dc": "hard",
-    "2072aba6": "easy",
-    "27a77e38": "medium",
-    "281123b4": "medium",
-    "31d5ba1a": "expert",
-    "32e9702f": "medium",
-    "34b99a2b": "expert",
-    "3b4c2228": "easy",
-    "3d31c5b3": "hard",
-    "48131b3c": "medium",
-    "4852f2fa": "medium",
-    "4cd1b7b2": "easy",
-    "506d28a5": "hard",
-    "5783df64": "easy",
-    "59341089": "easy",
-    "5d2a5c43": "hard",
-    "60c09cac": "medium",
-    "626c0bcc": "medium",
-    "62b74c02": "easy",
-    "66e6c45b": "easy",
-    "66f2d22f": "hard",
-    "68b67ca3": "easy",
-    "6a11f6da": "medium",
-    "6ad5bdfd": "medium",
-    "6ea4a07e": "easy",
-    "7953d61e": "hard",
-    "833dafe3": "easy",
-    "8597cfd7": "easy",
-    "8ba14f53": "medium",
-    "9110e3c5": "easy",
-    "a8610ef7": "expert",
-    "aa18de87": "medium",
-    "af24b4cc": "easy",
-    "b0722778": "hard",
-    "b1fc8b8e": "medium",
-    "bbb1b8b6": "medium",
-    "be03b35f": "medium",
-    "c074846d": "easy",
-    "c8b7cc0f": "easy",
-    "ca8de6ea": "medium",
-    "d017b73f": "medium",
-    "d19f7514": "hard",
-    "e133d23d": "medium",
-    "e345f17b": "medium",
-    "e633a9e5": "medium",
-    "e6de6e8f": "expert",
-    "e99362f0": "expert",
-    "ed74f2f2": "medium",
-    "ed98d772": "hard",
-    "fc754716": "easy"
+    "00576224": {
+        "level": "easy",
+        "num_train_examples": 2
+    },
+    "0c786b71": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "0c9aba6e": {
+        "level": "expert",
+        "num_train_examples": 4
+    },
+    "17cae0c1": {
+        "level": "medium",
+        "num_train_examples": 4
+    },
+    "195ba7dc": {
+        "level": "hard",
+        "num_train_examples": 4
+    },
+    "2072aba6": {
+        "level": "easy",
+        "num_train_examples": 3
+    },
+    "27a77e38": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "281123b4": {
+        "level": "medium",
+        "num_train_examples": 6
+    },
+    "31d5ba1a": {
+        "level": "expert",
+        "num_train_examples": 5
+    },
+    "32e9702f": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "34b99a2b": {
+        "level": "expert",
+        "num_train_examples": 4
+    },
+    "3b4c2228": {
+        "level": "easy",
+        "num_train_examples": 5
+    },
+    "3d31c5b3": {
+        "level": "hard",
+        "num_train_examples": 6
+    },
+    "48131b3c": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "4852f2fa": {
+        "level": "medium",
+        "num_train_examples": 5
+    },
+    "4cd1b7b2": {
+        "level": "easy",
+        "num_train_examples": 3
+    },
+    "506d28a5": {
+        "level": "hard",
+        "num_train_examples": 4
+    },
+    "5783df64": {
+        "level": "easy",
+        "num_train_examples": 3
+    },
+    "59341089": {
+        "level": "easy",
+        "num_train_examples": 4
+    },
+    "5d2a5c43": {
+        "level": "hard",
+        "num_train_examples": 5
+    },
+    "60c09cac": {
+        "level": "medium",
+        "num_train_examples": 2
+    },
+    "626c0bcc": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "62b74c02": {
+        "level": "easy",
+        "num_train_examples": 3
+    },
+    "66e6c45b": {
+        "level": "easy",
+        "num_train_examples": 2
+    },
+    "66f2d22f": {
+        "level": "hard",
+        "num_train_examples": 4
+    },
+    "68b67ca3": {
+        "level": "easy",
+        "num_train_examples": 3
+    },
+    "6a11f6da": {
+        "level": "medium",
+        "num_train_examples": 5
+    },
+    "6ad5bdfd": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "6ea4a07e": {
+        "level": "easy",
+        "num_train_examples": 6
+    },
+    "7953d61e": {
+        "level": "hard",
+        "num_train_examples": 5
+    },
+    "833dafe3": {
+        "level": "easy",
+        "num_train_examples": 2
+    },
+    "8597cfd7": {
+        "level": "easy",
+        "num_train_examples": 4
+    },
+    "8ba14f53": {
+        "level": "medium",
+        "num_train_examples": 6
+    },
+    "9110e3c5": {
+        "level": "easy",
+        "num_train_examples": 7
+    },
+    "a8610ef7": {
+        "level": "expert",
+        "num_train_examples": 4
+    },
+    "aa18de87": {
+        "level": "medium",
+        "num_train_examples": 4
+    },
+    "af24b4cc": {
+        "level": "easy",
+        "num_train_examples": 3
+    },
+    "b0722778": {
+        "level": "hard",
+        "num_train_examples": 2
+    },
+    "b1fc8b8e": {
+        "level": "medium",
+        "num_train_examples": 5
+    },
+    "bbb1b8b6": {
+        "level": "medium",
+        "num_train_examples": 7
+    },
+    "be03b35f": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "c074846d": {
+        "level": "easy",
+        "num_train_examples": 5
+    },
+    "c8b7cc0f": {
+        "level": "easy",
+        "num_train_examples": 3
+    },
+    "ca8de6ea": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "d017b73f": {
+        "level": "medium",
+        "num_train_examples": 4
+    },
+    "d19f7514": {
+        "level": "hard",
+        "num_train_examples": 4
+    },
+    "e133d23d": {
+        "level": "medium",
+        "num_train_examples": 5
+    },
+    "e345f17b": {
+        "level": "medium",
+        "num_train_examples": 4
+    },
+    "e633a9e5": {
+        "level": "medium",
+        "num_train_examples": 3
+    },
+    "e6de6e8f": {
+        "level": "expert",
+        "num_train_examples": 3
+    },
+    "e99362f0": {
+        "level": "expert",
+        "num_train_examples": 6
+    },
+    "ed74f2f2": {
+        "level": "medium",
+        "num_train_examples": 6
+    },
+    "ed98d772": {
+        "level": "hard",
+        "num_train_examples": 5
+    },
+    "fc754716": {
+        "level": "easy",
+        "num_train_examples": 4
+    }
 }
