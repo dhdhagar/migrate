@@ -170,8 +170,18 @@ def add_to_batch(self, replacement, completions, rewards):
         else:
             self.best_idx_replaced = None
 
+
 def run_neighborhood_sampling(self, completions, rewards, gold_solution):
     neigh_samples, neigh_scores = self.get_neighborhood_samples(self.arc_prob, gold_solution[0], self.n_neighbors)
+    with open(self.logfile, "r") as fh:
+        logdata = json.load(fh)
+    if "neighborhood_samples" not in logdata:
+        logdata["neighborhood_samples"] = {}
+    # Add zipped list of samples, scores
+    logdata["neighborhood_samples"][f"iteration_{self.iteration}"] = list(zip(neigh_samples, neigh_scores))
+    with open(self.logfile, "w") as fh:
+        fh.write(json.dumps(logdata, indent=2))
+
     if self.neighborhood_sampling_strategy == "best":
         # Add neighbors to online samples and keep the best ones
         n_batch = len(completions)
