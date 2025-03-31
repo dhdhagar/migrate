@@ -195,6 +195,7 @@ class GRPOTrainer(GRPOTrainer):
 
         # Zip and sort completions and rewards
         completions, rewards = zip(*sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True))
+        completions, rewards = list(completions), list(rewards)
 
         return completions, rewards
 
@@ -434,6 +435,7 @@ class GRPOTrainer(GRPOTrainer):
         completions, bb_scores, responses = zip(
             *sorted(zip(completions, bb_scores, responses), key=lambda x: x[1], reverse=True)
         )
+        completions, bb_scores, responses = list(completions), list(bb_scores), list(responses)
 
         # Create completions and corresponding rewards based on the strategy
         completions = list(itertools.chain.from_iterable(responses))
