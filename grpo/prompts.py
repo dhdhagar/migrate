@@ -145,7 +145,7 @@ def get_arc_datasets(
     training_examples = data[task_id]["train"][1:]
     validation_example = data[task_id]["train"][0]
 
-    print("Available input-output examples:", len(data[task_id]["train"]))
+    print("\nAvailable input-output examples:", len(data[task_id]["train"]))
 
     # Creating training prompts
     training_dataset = []
