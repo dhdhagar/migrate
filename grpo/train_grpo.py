@@ -44,7 +44,8 @@ def parse_arguments():
     parser.add_argument("--warmstart", type=float, default=0)
     parser.add_argument("--strategy", type=str, default="Oracle_Single")
     parser.add_argument("--date", type=str)
-    parser.add_argument("--related", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--neighborhood_sampling", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--neighborhood_sampling_strategy", type=str, choices=["best", "mix"], default="best")
     parser.add_argument("--task", type=str, default="semantle")
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--num_train_epochs", type=int, default=15)
@@ -85,7 +86,7 @@ def parse_arguments():
     parser.add_argument("--inf_batch_size", type=int, default=10)
     parser.add_argument("--save_datasets", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--maximum_eval_size", type=int, default=64)
-    parser.add_argument("--inject_oracle_at_lowest_score", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--inject_best_at_lowest_score", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use_early_stopping", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     return args
@@ -225,7 +226,6 @@ def main(params):
         logfile=logfile,
         target=params["target"],
         strategy=params["strategy"],
-        sample_related=params["related"],
         task=params["task"],
         arc_dataset_file=params["arc_dataset_file"],
         generation_args={},
@@ -235,9 +235,11 @@ def main(params):
         pro_loss_only_positive=params["pro_loss_only_positive"],
         train_temperature=params["train_temperature"],
         use_train_temp_schedule=params["use_train_temp_schedule"],
-        inject_oracle_at_lowest_score=params["inject_oracle_at_lowest_score"],
+        inject_best_at_lowest_score=params["inject_best_at_lowest_score"],
         inf_batch_size=params["inf_batch_size"],
         use_early_stopping=params["use_early_stopping"],
+        neighborhood_sampling=params["neighborhood_sampling"],
+        neighborhood_sampling_strategy=params["neighborhood_sampling_strategy"],
         callbacks=[CustomProgressCallback()]
     )
 

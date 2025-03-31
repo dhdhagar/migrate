@@ -25,6 +25,8 @@ from transformers.utils import (
 import prompts as prompts_getter
 import arc_utils.utils as arc_utils
 
+from ..arc_utils.utils import add_to_batch, run_neighborhood_sampling
+
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
     from smdistributed.modelparallel import __version__ as SMP_VERSION
@@ -80,7 +82,6 @@ class GRPOTrainer(GRPOTrainer):
             target,
             strategy,
             logfile,
-            sample_related,
             task,
             arc_dataset_file,
             validation_dataset,
@@ -92,9 +93,11 @@ class GRPOTrainer(GRPOTrainer):
             train_temperature=1.0,
             use_train_temp_schedule=False,
             inf_batch_size=10,
-            inject_oracle_at_lowest_score=False,
+            inject_best_at_lowest_score=False,
             pro_loss_only_positive=False,
             use_early_stopping=True,
+            neighborhood_sampling=False,
+            neighborhood_sampling_strategy="best",
             *args,
             **kwargs,
     ):
@@ -104,7 +107,8 @@ class GRPOTrainer(GRPOTrainer):
         self.target = target
         self.past_guesses = {}
         self.strategy = strategy
-        self.sample_related = sample_related
+        self.neighborhood_sampling = neighborhood_sampling
+        self.neighborhood_sampling_strategy = neighborhood_sampling_strategy
         self.task = task
 
         self.arc_sol = None
@@ -121,7 +125,7 @@ class GRPOTrainer(GRPOTrainer):
         self.train_temperature = train_temperature
         self.use_train_temp_schedule = use_train_temp_schedule
         self.inf_batch_size = inf_batch_size
-        self.inject_oracle_at_lowest_score = inject_oracle_at_lowest_score
+        self.inject_best_at_lowest_score = inject_best_at_lowest_score
         self.pro_loss_only_positive = pro_loss_only_positive
         self.use_early_stopping = use_early_stopping
 
@@ -147,53 +151,51 @@ class GRPOTrainer(GRPOTrainer):
         self.arc_past_guesses[self.arc_leave_out] = self.past_guesses.copy()
 
     # Neighborhood sampling
-    # TODO: Add support for ARC
-    def sample_related_completions(self, chosen_completion, n):
-        inputs = {"prompt": prompts_getter.get_semantle_related_prompt(n, str(chosen_completion))}
-        inputs = [maybe_apply_chat_template(inputs, self.processing_class)["prompt"]]
+    def get_neighborhood_samples(self, problem, solution, n_samples, unique=True):
+        prompts_text = [prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))] * n_samples
         prompt_inputs = self.processing_class(
-            inputs, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
+            prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
         )
-        inputs = super()._prepare_inputs(prompt_inputs)
-
+        prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
+        if self.max_prompt_length is not None:
+            prompt_ids = prompt_ids[:, -self.max_prompt_length:]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length:]
         completions = []
-        for i in range(0, len(prompt_inputs["input_ids"]), self.inf_batch_size):
-            prompt_ids, prompt_mask = prompt_inputs["input_ids"][i:i + self.inf_batch_size], prompt_inputs[
-                                                                                                 "attention_mask"][
-                                                                                             i:i + self.inf_batch_size
-                                                                                             ]
+        for i in range(0, len(prompt_ids), self.inf_batch_size):
+            _prompt_ids, _prompt_mask = prompt_ids[i:i + self.inf_batch_size], prompt_mask[i:i + self.inf_batch_size]
             with unwrap_model_for_generation(self.model_wrapped, self.accelerator,
                                              gather_deepspeed3_params=self.args.ds3_gather_for_generation) as unwrapped_model:
                 completion_ids = unwrapped_model.generate(
-                    input_ids=prompt_ids.to(self.args.device),
-                    attention_mask=prompt_mask.to(self.args.device),
+                    input_ids=_prompt_ids.to(device),
+                    attention_mask=_prompt_mask.to(device),
+                    generation_config=self.generation_config,
                     temperature=self.temperature,
                     max_new_tokens=self.max_completion_length,
-                    generation_config=self.generation_config,
                     **self.generation_args,
                 )
-                prompt_length = prompt_inputs["input_ids"].size(1)
+                prompt_length = _prompt_ids.size(1)
                 completions.extend(
                     self.processing_class.batch_decode(
                         completion_ids[:, prompt_length:], skip_special_tokens=True
                     )
                 )
-        results = {}
-        for completion in completions:
-            parsed_completion = arc_utils.parse_response(completion)
-            parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
-            # Get black-box score if completion is valid otherwise 0
-            score = (
-                self.get_bb_score(self.validation_dataset["solution"], parsed_completion)
-                if isinstance(parsed_completion, np.ndarray)
-                else 0
-            )
-            parsed_completion = str(parsed_completion)
-            # Track completions and their scores
-            results[parsed_completion] = results.get(parsed_completion, {"score": score, "count": 0})
-            results[parsed_completion]["count"] += 1
 
-        return results
+        if unique:
+            completions = list(set(completions))
+
+        bb_scores, responses = [], []
+        for completion in completions:
+            guesses = [arc_utils.parse_response(completion)]
+            bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
+            responses.append([completion if x.size == 0 else str(x) for x in guesses])
+
+        completions = list(itertools.chain.from_iterable(responses))
+        rewards = list(itertools.chain.from_iterable(bb_scores))
+
+        # Zip and sort completions and rewards
+        completions, rewards = zip(*sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True))
+
+        return completions, rewards
 
     def run_validation(self):
         print("\n==================\nRUNNING VALIDATION\n==================")
@@ -282,7 +284,8 @@ class GRPOTrainer(GRPOTrainer):
 
         # Do pass@2 majority voting -- also make sure majority is more than 1
         sorted_majority = sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
-        if self.use_early_stopping and any(x[1]["score"] == 1.0 for x in sorted_majority[:2]):  # and sorted_majority[0][1]["count"] > 1:
+        if self.use_early_stopping and any(
+                x[1]["score"] == 1.0 for x in sorted_majority[:2]):  # and sorted_majority[0][1]["count"] > 1:
             self.control.should_training_stop = True
             print("EARLY STOPPING: Validation majority voting (pass@2) reached 100% accuracy.")
 
@@ -338,9 +341,8 @@ class GRPOTrainer(GRPOTrainer):
         prompts = [x["prompt"] for x in inputs]
 
         self.arc_leave_out = str(inputs[0]["solution"])
+        self.arc_prob = np.array(inputs[0]["problem"])
         self.arc_sol = np.array(inputs[0]["solution"])
-        # print("LEAVE OUT IDX:", self.arc_leave_out)
-        # print("GOLD SOLUTION\n", self.arc_sol)
 
         # Load/initialize past guesses according to leave-out
         if self.arc_leave_out in self.arc_past_guesses:
@@ -348,9 +350,6 @@ class GRPOTrainer(GRPOTrainer):
         else:
             self.past_guesses = {}
             self.arc_past_guesses[self.arc_leave_out] = self.past_guesses
-        # Training-Oracle: Add the gold solution to the past guesses (greedy_single will select this as chosen)
-        sol_str = str(self.arc_sol)
-        self.past_guesses[sol_str] = 1.0  # Black-box score of 1
 
         prompts_text = [maybe_apply_chat_template(example, self.processing_class)["prompt"] for example in inputs]
         prompt_inputs = self.processing_class(
@@ -430,195 +429,49 @@ class GRPOTrainer(GRPOTrainer):
             guesses = [arc_utils.parse_response(completion)]
             bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
             responses.append([completion if x.size == 0 else str(x) for x in guesses])
+        # Sort by rewards
+        completions, bb_scores, responses = zip(
+            *sorted(zip(completions, bb_scores, responses), key=lambda x: x[1], reverse=True)
+        )
 
-        # Create completions and corresponding rewards
-        # TODO: Refactor (self.strategy, repsonses, bb_scores) -> (completions, rewards)
-        completions, rewards = [], []
-        if self.strategy == "Oracle_Single":
-            completions = list(itertools.chain.from_iterable(responses))
-            rewards = list(itertools.chain.from_iterable(bb_scores))
-            # Substitute a random guess with the target
-            idx = random.randint(0, len(completions) - 1)
-            completions[idx] = self.target
-            rewards[idx] = 1.0
-        elif self.strategy == "Online_Single":
-            completions = list(itertools.chain.from_iterable(responses))
-            rewards = list(itertools.chain.from_iterable(bb_scores))
-            self.greedy_idx_replaced = None
-        elif self.strategy == "Online_Mean":
-            completions = responses
-            rewards = [np.mean(scores) for scores in bb_scores]
-        elif self.strategy == "Online_Max":
-            completions = responses
-            rewards = [np.max(scores) for scores in bb_scores]
-        elif self.strategy == "Online_Batch_Mean":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
-        elif self.strategy == "Online_Batch_Max":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
-        elif self.strategy == "Greedy_Single":
-            completions = list(itertools.chain.from_iterable(responses))
-            rewards = list(itertools.chain.from_iterable(bb_scores))
-            # Substitute a random guess with the best guess so far
+        # Create completions and corresponding rewards based on the strategy
+        completions = list(itertools.chain.from_iterable(responses))
+        rewards = list(itertools.chain.from_iterable(bb_scores))
+        if self.strategy == "gold":
+            # Substitute in the gold/oracle solution
+            gold_solution = (str(self.arc_sol), 1.0)
+
+            if self.neighborhood_sampling:
+                completions, rewards = run_neighborhood_sampling(self, completions, rewards, gold_solution[0])
+
+            add_to_batch(self, gold_solution, completions, rewards)
+        elif self.strategy == "greedy":
+            # Substitute in the best solution generated so far
+            best_guess = None
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
-                if not self.inject_oracle_at_lowest_score:
-                    idx = random.randint(0, len(completions) - 1)
-                else:
-                    idx = np.argmin(rewards)
-                self.greedy_idx_replaced = idx
-                completions[idx] = best_guess[0]
-                rewards[idx] = best_guess[1]
-        elif self.strategy == "Greedy_Batch_Mean":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            # Substitute a random guess batch with the best guess batch so far
-            if len(self.past_guesses) > 0:
-                best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[:2]
-                idx = random.randint(0, len(word_scores) - 1)
-                word_scores[idx] = best_guess  # type:ignore
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
-        elif self.strategy == "Greedy_Batch_Max":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            # Substitute a random guess batch with the best guess batch so far
-            if len(self.past_guesses) > 0:
-                best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[:2]
-                idx = random.randint(0, len(word_scores) - 1)
-                word_scores[idx] = best_guess  # type:ignore
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
-            # rewards = []
-            # rewards.append([np.max([x[0][1], x[1][1]]) for x in word_scores])
-            # rewards.append([int(x[0][0] != x[1][0]) for x in word_scores])
-        elif self.strategy == "TopDelta_Batch_Mean":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            random.shuffle(word_scores)
-            if len(self.past_guesses) > 0:
-                word_scores = word_scores[:6]
-                past_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
-                word_scores = word_scores + past_guesses[:2] + past_guesses[-2:]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
-        elif self.strategy == "TopDelta_Batch_Max":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            random.shuffle(word_scores)
-            if len(self.past_guesses) > 0:
-                word_scores = word_scores[:6]
-                past_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
-                word_scores = word_scores + past_guesses[:2] + past_guesses[-2:]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
-        elif self.strategy == "Greedy_Batch_Mean_Related":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            # Substitute a random guess batch with the best guess batch so far
-            best_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
-            if len(self.past_guesses) > 0:
-                random.shuffle(word_scores)
-                word_scores[0] = best_guesses[:2]  # type:ignore
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
 
-            related_completions = None
-            if len(self.past_guesses) > 0:
-                related_completions = self.sample_related_completions(best_guesses[0][0], 5)
-            if related_completions is not None:
-                print("RELATED", related_completions)
-                print("BEFORE", completions)
-                print("BEFORE", rewards)
-                random.shuffle(related_completions)
-                related_completions = related_completions[:4]
-                related_completions = [[x, self.get_bb_score(self.target, x)] for x in related_completions]
-                idx = random.sample(range(1, 5), 3)
-                # old_best = word_scores[0]
-                word_scores = related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[idx[2]]
-                word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                # word_scores = old_best + word_scores
-                word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-                completions = [[x[0][0], x[1][0]] for x in word_scores]
-                rewards = [np.mean([x[0][1], x[1][1]]) for x in word_scores]
-                print("AFTER", completions)
-                print("AFTER", rewards)
-        elif self.strategy == "Greedy_Batch_Max_Related":
-            completions = list(itertools.chain.from_iterable(responses))
-            scores = list(itertools.chain.from_iterable(bb_scores))
-            word_scores = [[word, score] for word, score in zip(completions, scores)]
-            word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-            word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-            # Substitute a random guess batch with the best guess batch so far
-            best_guesses = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)
-            if len(self.past_guesses) > 0:
-                random.shuffle(word_scores)
-                word_scores[0] = best_guesses[:2]  # type:ignore
-            completions = [[x[0][0], x[1][0]] for x in word_scores]
-            rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
+            if self.neighborhood_sampling:
+                completions, rewards = run_neighborhood_sampling(self, completions, rewards, best_guess[0])
 
-            related_completions = None
-            if len(self.past_guesses) > 0:
-                related_completions = self.sample_related_completions(best_guesses[0][0], 5)
-            if related_completions is not None:
-                print("RELATED", related_completions)
-                print("BEFORE", completions)
-                print("BEFORE", rewards)
-                random.shuffle(related_completions)
-                related_completions = related_completions[:4]
-                related_completions = [[x, self.get_bb_score(self.target, x)] for x in related_completions]
-                idx = random.sample(range(1, 5), 3)
-                # old_best = word_scores[0]
-                word_scores = related_completions + word_scores[idx[0]] + word_scores[idx[1]] + word_scores[idx[2]]
-                word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)
-                # word_scores = old_best + word_scores
-                word_scores = [word_scores[i: i + 2] for i in range(0, len(word_scores), 2)]
-                completions = [[x[0][0], x[1][0]] for x in word_scores]
-                rewards = [np.max([x[0][1], x[1][1]]) for x in word_scores]
-                print("AFTER", completions)
-                print("AFTER", rewards)
-
+            add_to_batch(self, best_guess, completions, rewards)
+        elif self.strategy == "top_delta":
+            raise NotImplementedError
+        else:
+            # Keep completions and rewards based on the online generated samples
+            self.best_idx_replaced = None
+            pass
 
         # Compute mean and max rewards excluding the "greedy" replacement
         mean_reward_minus_replacement = np.mean(
-            [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
+            [rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced])
         max_reward_minus_replacement = np.max(
-            [rewards[i] for i in range(len(rewards)) if i != self.greedy_idx_replaced])
+            [rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced])
         # Update training bar
         self.progress_callback.train_acc = np.round(mean_reward_minus_replacement, 4)
         wandb.log({"train/reward_minus_replacement_mean": mean_reward_minus_replacement})
         self.progress_callback.train_acc_max = np.round(max_reward_minus_replacement, 4)
         wandb.log({"train/reward_minus_replacement_max": max_reward_minus_replacement})
-
-        # print("COMPLETIONS:\n", completions)
-        # print("REWARDS:\n", rewards)
-        # print("MEAN REWARD:", np.mean(rewards))
 
         # Record guesses into history and log repsonses
         self.update_past_guesses(responses, bb_scores)
@@ -631,6 +484,7 @@ class GRPOTrainer(GRPOTrainer):
                         list(itertools.chain.from_iterable(bb_scores)),
                     )
                 ],
+                "problem": str(self.arc_prob),
                 "solution": self.arc_leave_out,  # Record for tracing trajectory in post
             },
             self.logfile,
@@ -789,11 +643,12 @@ class GRPOTrainer(GRPOTrainer):
             completion_logps = None
             if self.nll_weight > 0:
                 # breakpoint()
-                completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[:,
+                completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[
+                                                                                                        :,
                                                                                                         -logits_to_keep:].sum(
                     dim=1)
                 # Use the gold completion logp for NLL
-                oracle_logp = completion_logps[self.greedy_idx_replaced]
+                oracle_logp = completion_logps[self.best_idx_replaced]
                 nll_loss = self.nll_weight * -oracle_logp
                 if loss is None or loss == 0:
                     loss = nll_loss
@@ -803,9 +658,10 @@ class GRPOTrainer(GRPOTrainer):
 
             if self.pro_loss_weight > 0:
                 if completion_logps is None:
-                    completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[
-                                                                                                            :,
-                                                                                                            -logits_to_keep:].sum(
+                    completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(
+                        dim=1) / attention_mask[
+                                 :,
+                                 -logits_to_keep:].sum(
                         dim=1)
                 sorted_order = torch.argsort(inputs["advantages"], descending=True)
                 sorted_completion_logps = completion_logps[sorted_order]

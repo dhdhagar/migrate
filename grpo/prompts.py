@@ -84,6 +84,15 @@ Your answer must follow the same format.
 
 Now apply the transformation to the provided test case."""
 
+    system_prompt_for_neighbors = """You are a helpful chatbot with high attention to detail who is not talkative and \
+responds only with the answer and no additional conversation. There is a specific grid transformation that we want to \
+use on all input grids and we are trying to guess the output grid for a specific provided input grid.
+
+Here is the input grid and my guess for the output grid:
+%s -> %s
+
+Provide a variation of my guess that could be the correct answer."""
+
 
 def create_arc_prompts(possible_context_examples, user_input, do_permutation=False):
     dataset = []
@@ -113,14 +122,21 @@ def create_arc_prompts(possible_context_examples, user_input, do_permutation=Fal
     return dataset
 
 
+def get_arc_neighborhood_samples_prompt(target_input, target_output):
+    return [
+        {"content": ARC.system_prompt_for_neighbors % (target_input, target_output), "role": "system"},
+        {"content": f"{target_input} -> ", "role": "user"},
+    ]
+
+
 def get_arc_datasets(
-    task_id,
-    arc_dataset_file,
-    arc_dataset_solution_file,
-    minimum_training_size=64,
-    maximum_training_size=64,
-    maximum_eval_size=64,
-    do_permutation=False,
+        task_id,
+        arc_dataset_file,
+        arc_dataset_solution_file,
+        minimum_training_size=64,
+        maximum_training_size=64,
+        maximum_eval_size=64,
+        do_permutation=False,
 ):
     """
     Create ARC training, validation, and testing prompt datasets.
@@ -151,9 +167,10 @@ def get_arc_datasets(
     training_dataset = []
     for i, leave_out in enumerate(training_examples):
         leave_out_input = str(np.array(leave_out["input"]))
-        possible_context_examples = training_examples[:i] + training_examples[i + 1 :]
+        possible_context_examples = training_examples[:i] + training_examples[i + 1:]
         dataset = create_arc_prompts(possible_context_examples, leave_out_input, do_permutation)
-        dataset = [{"prompt": x, "solution": np.array(leave_out["output"])} for x in dataset]
+        dataset = [{"prompt": x, "problem": np.array(leave_out["input"]), "solution": np.array(leave_out["output"])} for x
+                   in dataset]
         training_dataset += dataset
     random.shuffle(training_dataset)
 

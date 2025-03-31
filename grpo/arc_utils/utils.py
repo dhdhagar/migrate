@@ -3,6 +3,7 @@ import numpy as np
 import glob
 import json
 import torch
+import random
 
 
 def parse_response(output: str) -> np.ndarray:
@@ -153,3 +154,43 @@ def pro_loss(p, start_neg_idx_to_ignore=None):
     loss = - (numerators - denominators)[:, :start_neg_idx_to_ignore].sum(dim=1).mean()
 
     return loss
+
+
+def add_to_batch(self, replacement, completions, rewards):
+    # Helper utility for ARCTrainer to add a replacement completion to the batch
+    if replacement is not None:
+        idx = random.randint(0, len(completions) - 1)
+        if self.inject_best_at_lowest_score:
+            idx = np.argmin(rewards)
+            self.best_idx_replaced = idx
+        # Only replace if the best guess is better than the current guess
+        if replacement[1] > rewards[idx]:
+            completions[idx] = replacement[0]
+            rewards[idx] = replacement[1]
+        else:
+            self.best_idx_replaced = None
+
+def run_neighborhood_sampling(self, completions, rewards, gold_solution):
+    neigh_samples, neigh_scores = self.get_neighborhood_samples(self.arc_prob, gold_solution[0], self.n_neighbors)
+    if self.neighborhood_sampling_strategy == "best":
+        # Add neighbors to online samples and keep the best ones
+        n_batch = len(completions)
+        completions.extend(neigh_samples)
+        rewards.extend()
+        # Sort by reward and keep the best ones
+        completions, rewards = zip(
+            *sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True)[:n_batch])
+    elif self.neighborhood_sampling_strategy == "mix":
+        # Add half of the neighbors to half of the online samples
+        n_batch = len(completions)
+        _completions = completions[:n_batch // 2]
+        _rewards = rewards[:n_batch // 2]
+        _completions.extend(neigh_samples[:n_batch // 2])
+        _rewards.extend(neigh_scores[:n_batch // 2])
+        # If length of _completions is less than n_batch, add online samples
+        if len(_completions) < n_batch:
+            _completions.extend(completions[n_batch // 2:])
+            _rewards.extend(rewards[n_batch // 2:])
+        completions, rewards = _completions[:n_batch], _rewards[:n_batch]
+
+    return completions, rewards
