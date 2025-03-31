@@ -35,5 +35,5 @@ model_name="ekinakyurek/marc-8B-finetuned-llama3"
 for target in "${targets[@]}"; do
   printf "Launching job for target %s\n" "$target"
 
-  accelerate launch train_grpo.py --date $(date "+%Y-%m-%d_%H-%M-%S") --model "ekinakyurek/marc-8B-finetuned-llama3" --strategy "Greedy_Single" --task "arc" --num_train_epochs 1 --batch_size 2 --num_generations 2 --use_permutations --learning_rate 3e-4 --online_max_completion_length 256 --target "$target" --nll_weight=1 --grpo_weight=0 --wandb_prefix "sft_temp_sched" --use_train_temp_schedule --wandb_tags="sft,train_temp=sched"
+  accelerate launch train_grpo.py --date $(date "+%Y-%m-%d_%H-%M-%S") --model "ekinakyurek/marc-8B-finetuned-llama3" --strategy "gold" --task "arc" --num_train_epochs 1 --batch_size 2 --num_generations 2 --use_permutations --learning_rate 3e-4 --online_max_completion_length 256 --target "$target" --nll_weight=1 --grpo_weight=0 --wandb_prefix "sft_temp_sched" --use_train_temp_schedule --wandb_tags="sft,train_temp=sched"
 done
