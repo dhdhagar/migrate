@@ -86,7 +86,7 @@ def parse_arguments():
     parser.add_argument("--save_datasets", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--maximum_eval_size", type=int, default=64)
     parser.add_argument("--inject_oracle_at_lowest_score", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--early_stopping", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--use_early_stopping", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     return args
 
@@ -237,7 +237,7 @@ def main(params):
         use_train_temp_schedule=params["use_train_temp_schedule"],
         inject_oracle_at_lowest_score=params["inject_oracle_at_lowest_score"],
         inf_batch_size=params["inf_batch_size"],
-        early_stopping=params["early_stopping"],
+        use_early_stopping=params["use_early_stopping"],
         callbacks=[CustomProgressCallback()]
     )
 
