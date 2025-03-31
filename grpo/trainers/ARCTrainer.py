@@ -136,10 +136,6 @@ class GRPOTrainer(GRPOTrainer):
     # Compute black-box score
     def get_bb_score(self, completion1, completion2, verbose=True):
         score = 1 - arc_utils.hamming_distance(completion1, completion2)
-        # if verbose:
-        #     print("ATTEMPT:\n", completion2)
-        #     print("SOLUTION:\n", completion1)
-        #     print("SCORE:", score)
         return score
 
     # Record new completions and their black-box scores
@@ -151,6 +147,45 @@ class GRPOTrainer(GRPOTrainer):
         self.arc_past_guesses[self.arc_leave_out] = self.past_guesses.copy()
 
     # Neighborhood sampling
+    def run_neighborhood_sampling(self, completions, rewards, target_solution, n_neighbors):
+        if target_solution is None:
+            # Set as the best current completion
+            target_solution = completions[np.argmax(rewards)]
+        neigh_samples, neigh_scores = self.get_neighborhood_samples(self.arc_prob, target_solution, n_neighbors)
+        with open(self.logfile, "r") as fh:
+            logdata = json.load(fh)
+        if "neighborhood_samples" not in logdata:
+            logdata["neighborhood_samples"] = {}
+        # Add zipped list of samples, scores
+        logdata["neighborhood_samples"][f"iteration_{self.iteration}"] = list(zip(neigh_samples, neigh_scores))
+        with open(self.logfile, "w") as fh:
+            fh.write(json.dumps(logdata, indent=2))
+
+        if self.neighborhood_sampling_strategy == "best":
+            # Add neighbors to online samples and keep the best ones
+            n_batch = len(completions)
+            completions.extend(neigh_samples)
+            rewards.extend(neigh_scores)
+            # Sort by reward and keep the best ones
+            completions, rewards = zip(
+                *sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True)[:n_batch])
+            completions, rewards = list(completions), list(rewards)
+
+        elif self.neighborhood_sampling_strategy == "mix":
+            # Add half of the neighbors to half of the online samples
+            n_batch = len(completions)
+            _completions = completions[:n_batch // 2]
+            _rewards = rewards[:n_batch // 2]
+            _completions.extend(neigh_samples[:n_batch // 2])
+            _rewards.extend(neigh_scores[:n_batch // 2])
+            # If length of _completions is less than n_batch, add online samples
+            if len(_completions) < n_batch:
+                _completions.extend(completions[n_batch // 2:])
+                _rewards.extend(rewards[n_batch // 2:])
+            completions, rewards = _completions[:n_batch], _rewards[:n_batch]
+
+        return completions, rewards
+
     def get_neighborhood_samples(self, problem, solution, n_samples, unique=True):
         # Sample from the base model
         prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))
@@ -297,10 +332,6 @@ class GRPOTrainer(GRPOTrainer):
         wandb.log({"validation/majority_count": sorted_majority[0][1]["count"]})
         wandb.log({"validation/total_count": len(completions)})
 
-        # print("VALIDATION SOLUTION", self.validation_dataset["solution"])
-        # print("VALIDATION ATTEMPT", sorted_majority[0][0])
-        # print("VALIDATION SCORE", sorted_majority[0][1]["score"])
-
         # Log validation results
         with open(self.logfile, "r") as file:
             data = json.load(file)
@@ -333,6 +364,19 @@ class GRPOTrainer(GRPOTrainer):
             # In evaluation, we don't reuse completions across multiple updates, so we don't need to buffer inputs.
             inputs = self._generate_and_score_completions(inputs)
         return inputs
+
+    def _add_to_batch(self, replacement, completions, rewards):
+        if replacement is not None:
+            idx = random.randint(0, len(completions) - 1)
+            if self.inject_best_at_lowest_score:
+                idx = np.argmin(rewards)
+                self.best_idx_replaced = idx
+            # Only replace if the best guess is better than the current guess
+            if replacement[1] > rewards[idx]:
+                completions[idx] = replacement[0]
+                rewards[idx] = replacement[1]
+            else:
+                self.best_idx_replaced = None
 
     def _generate_and_score_completions(
             self, inputs: dict[str, Union[torch.Tensor, Any]]
@@ -445,10 +489,10 @@ class GRPOTrainer(GRPOTrainer):
             gold_solution = (str(self.arc_sol), 1.0)
 
             if self.neighborhood_sampling:
-                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, gold_solution[0],
-                                                                           n_neighbors=self.n_neighbors)
+                completions, rewards = self.run_neighborhood_sampling(completions, rewards, gold_solution[0],
+                                                                      n_neighbors=self.n_neighbors)
 
-            arc_utils.add_to_batch(self, gold_solution, completions, rewards)
+            self._add_to_batch(gold_solution, completions, rewards)
         elif self.strategy == "greedy":
             # Substitute in the best solution generated so far
             best_guess = None
@@ -456,10 +500,10 @@ class GRPOTrainer(GRPOTrainer):
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
 
             if self.neighborhood_sampling:
-                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, best_guess[0],
-                                                                           n_neighbors=self.n_neighbors)
+                completions, rewards = self.run_neighborhood_sampling(completions, rewards, best_guess[0],
+                                                                      n_neighbors=self.n_neighbors)
 
-            arc_utils.add_to_batch(self, best_guess, completions, rewards)
+            self._add_to_batch(best_guess, completions, rewards)
         elif self.strategy == "top_delta":
             raise NotImplementedError
         else:
@@ -467,8 +511,8 @@ class GRPOTrainer(GRPOTrainer):
             self.best_idx_replaced = None
 
             if self.neighborhood_sampling:
-                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, None,
-                                                                           n_neighbors=self.n_neighbors)
+                completions, rewards = self.run_neighborhood_sampling(completions, rewards, None,
+                                                                      n_neighbors=self.n_neighbors)
 
         # Compute mean and max rewards excluding the "greedy" replacement
         mean_reward_minus_replacement = np.mean(

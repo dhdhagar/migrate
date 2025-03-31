@@ -353,10 +353,13 @@ def main(params):
 
         # Save these logs to wandb
         wandb.run.summary["test/solved_majority"] = data["test_solved_majority"]
+        wandb.run.summary["test/score_majority"] = data["test_majority"]["score"]
         wandb.run.summary["test/solved_majority_pass2"] = data["test_solved_majority_pass2"]
+        wandb.run.summary["test/score_majority_pass2"] = max(data["test_majority"]["score"], data["test_samples"][1]["score"] if len(data["test_samples"]) > 1 else 0)
         wandb.run.summary["test/solved_oracle"] = data["test_solved_oracle"]
         wandb.run.summary["test/best_score"] = data["test_best"]["score"]
         wandb.run.summary["test/best_completion"] = data["test_best"]
+
 
         print(f"TEST SOLVED @ pass1: {data['test_solved_majority']}")
         print(f"TEST SOLVED @ pass2: {data['test_solved_majority_pass2']}")
