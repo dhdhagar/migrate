@@ -23,7 +23,7 @@ from transformers.utils import (
     is_sagemaker_mp_enabled,
 )
 import prompts as prompts_getter
-import arc_utils.utils as arc_utils, add_to_batch, run_neighborhood_sampling
+import arc_utils.utils as arc_utils
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -440,9 +440,9 @@ class GRPOTrainer(GRPOTrainer):
             gold_solution = (str(self.arc_sol), 1.0)
 
             if self.neighborhood_sampling:
-                completions, rewards = run_neighborhood_sampling(self, completions, rewards, gold_solution[0])
+                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, gold_solution[0])
 
-            add_to_batch(self, gold_solution, completions, rewards)
+            arc_utils.add_to_batch(self, gold_solution, completions, rewards)
         elif self.strategy == "greedy":
             # Substitute in the best solution generated so far
             best_guess = None
@@ -450,9 +450,9 @@ class GRPOTrainer(GRPOTrainer):
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
 
             if self.neighborhood_sampling:
-                completions, rewards = run_neighborhood_sampling(self, completions, rewards, best_guess[0])
+                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, best_guess[0])
 
-            add_to_batch(self, best_guess, completions, rewards)
+            arc_utils.add_to_batch(self, best_guess, completions, rewards)
         elif self.strategy == "top_delta":
             raise NotImplementedError
         else:
