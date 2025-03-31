@@ -465,7 +465,10 @@ class GRPOTrainer(GRPOTrainer):
         else:
             # Keep completions and rewards based on the online generated samples
             self.best_idx_replaced = None
-            pass
+
+            if self.neighborhood_sampling:
+                completions, rewards = arc_utils.run_neighborhood_sampling(self, completions, rewards, None,
+                                                                           n_neighbors=self.n_neighbors)
 
         # Compute mean and max rewards excluding the "greedy" replacement
         mean_reward_minus_replacement = np.mean(
