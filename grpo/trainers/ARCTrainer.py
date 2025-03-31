@@ -152,7 +152,8 @@ class GRPOTrainer(GRPOTrainer):
 
     # Neighborhood sampling
     def get_neighborhood_samples(self, problem, solution, n_samples, unique=True):
-        prompts_text = [prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))] * n_samples
+        prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))
+        prompts_text = [maybe_apply_chat_template({"prompt": prompt_obj}, self.processing_class)["prompt"]] * n_samples
         prompt_inputs = self.processing_class(
             prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
         )
@@ -166,8 +167,8 @@ class GRPOTrainer(GRPOTrainer):
             with unwrap_model_for_generation(self.model_wrapped, self.accelerator,
                                              gather_deepspeed3_params=self.args.ds3_gather_for_generation) as unwrapped_model:
                 completion_ids = unwrapped_model.generate(
-                    input_ids=_prompt_ids.to(device),
-                    attention_mask=_prompt_mask.to(device),
+                    input_ids=_prompt_ids.to(self.args.device),
+                    attention_mask=_prompt_mask.to(self.args.device),
                     generation_config=self.generation_config,
                     temperature=self.temperature,
                     max_new_tokens=self.max_completion_length,
