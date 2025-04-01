@@ -89,11 +89,12 @@ def parse_arguments():
     parser.add_argument("--maximum_eval_size", type=int, default=64)
     parser.add_argument("--inject_best_at_lowest_score", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use_early_stopping", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--max_seq_len", type=int, default=2048)
     args = parser.parse_args()
     return args
 
 
-def create_dataset(params):
+def create_dataset(params, tokenizer=None):
     if params["task"] != "arc":
         return [
             {"prompt": prompts_getter.get_prompt(params["task"], params["num_guesses"], params["target"])}
@@ -108,6 +109,8 @@ def create_dataset(params):
             maximum_training_size=params["maximum_training_size"],
             maximum_eval_size=params["maximum_eval_size"],
             do_permutation=params["use_permutations"],
+            tokenizer=tokenizer,
+            max_seq_len=params["max_seq_len"]
         )
 
 
@@ -129,26 +132,6 @@ def setup_logging(params, validation_data, test_data):
 
 
 def setup_model(params):
-    # peft_config = LoraConfig(
-    # peft_config = FastLanguageModel.get_peft_model(
-    #     r=128,
-    #     lora_alpha=32,
-    #     lora_dropout=0.0,
-    #     bias="none",
-    #     task_type="CAUSAL_LM",
-    #     # target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-    #     target_modules=["q_proj", "v_proj"],
-    #     use_gradient_checkpointing = "unsloth"
-    # )
-    # if params["4bit"]:
-    #     quant_config = BitsAndBytesConfig(
-    #         load_in_4bit=True,
-    #         bnb_4bit_use_double_quant=True,
-    #         bnb_4bit_quant_type="nf4",
-    #         bnb_4bit_compute_dtype=torch.bfloat16,
-    #     )
-    # else:
-    #     quant_config = BitsAndBytesConfig(load_in_8bit=True)
 
     model, tokenizer = FastLanguageModel.from_pretrained(
         params["model"],
@@ -183,10 +166,9 @@ def reward_len(completions, **kwargs):
 
 
 def main(params):
-    training_dataset, validation_dataset, test_dataset = create_dataset(params)
-
-    # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)
+
+    training_dataset, validation_dataset, test_dataset = create_dataset(params, tokenizer=tokenizer)
 
     data, logdir, logfile, wandb_id = setup_logging(params, validation_dataset, test_dataset)
 

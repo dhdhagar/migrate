@@ -137,6 +137,8 @@ def get_arc_datasets(
         maximum_training_size=64,
         maximum_eval_size=64,
         do_permutation=False,
+        tokenizer=None,
+        max_seq_len=None
 ):
     """
     Create ARC training, validation, and testing prompt datasets.
@@ -170,8 +172,10 @@ def get_arc_datasets(
         possible_context_examples = training_examples[:i] + training_examples[i + 1:]
         dataset = create_arc_prompts(possible_context_examples, leave_out_input, do_permutation)
         dataset = [{"prompt": x, "problem": np.array(leave_out["input"]), "solution": np.array(leave_out["output"])} for
-                   x
-                   in dataset]
+                   x in dataset]
+        # Only keep prompts that are shorter than the maximum sequence length
+        if max_seq_len is not None:
+            dataset = [x for x in dataset if len(tokenizer(x["prompt"])["input_ids"]) <= max_seq_len]
         training_dataset += dataset
     random.shuffle(training_dataset)
 
@@ -189,6 +193,9 @@ def get_arc_datasets(
     # Create validation prompts
     validation_input = str(np.array(validation_example["input"]))
     validation_dataset = create_arc_prompts(training_examples, validation_input, do_permutation)
+    # Only keep prompts that are shorter than the maximum sequence length
+    if max_seq_len is not None:
+        validation_dataset = [x for x in validation_dataset if len(tokenizer(x)["input_ids"]) <= max_seq_len]
     print("Validation dataset size:", len(validation_dataset))
     if len(validation_dataset) > maximum_eval_size:
         validation_dataset = validation_dataset[-maximum_eval_size:]
@@ -200,6 +207,9 @@ def get_arc_datasets(
     all_training_examples = data[task_id]["train"]
     test_input = np.array(data[task_id]["test"][0]["input"])
     test_dataset = create_arc_prompts(all_training_examples, str(test_input), do_permutation)
+    # Only keep prompts that are shorter than the maximum sequence length
+    if max_seq_len is not None:
+        test_dataset = [x for x in test_dataset if len(tokenizer(x)["input_ids"]) <= max_seq_len]
     print("Test dataset size:", len(test_dataset))
     if len(test_dataset) > maximum_eval_size:
         test_dataset = test_dataset[-maximum_eval_size:]
