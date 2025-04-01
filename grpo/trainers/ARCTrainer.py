@@ -690,7 +690,7 @@ class GRPOTrainer(GRPOTrainer):
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
-        per_token_logps = self._get_per_token_logps_clone(model, input_ids, attention_mask, logits_to_keep)
+        per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep)
         completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / \
                            attention_mask[:, -logits_to_keep:].sum(dim=1)
         return completion_logps
