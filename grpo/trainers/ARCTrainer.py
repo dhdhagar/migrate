@@ -749,7 +749,7 @@ class GRPOTrainer(GRPOTrainer):
             self._metrics["train"]["pro_loss"].append(_pro_loss.item())
 
         if self.grpo_weight > 0:
-            grpo_loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+            grpo_loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)[0]
             if loss is None or loss == 0:
                 loss = grpo_loss
             else:
