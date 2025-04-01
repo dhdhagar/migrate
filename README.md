@@ -79,6 +79,7 @@ accelerate launch train_grpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --tar
 - `--lora_dropout` -- Default: 0.0
 - `--target_modules` -- Default: `["q_proj", "v_proj"]`
 - `arc_dataset_file` -- File path to `arc-agi_evaluation_challenges.json`
+- `online_temperature`
 
 
 

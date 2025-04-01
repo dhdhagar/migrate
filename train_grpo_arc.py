@@ -13,7 +13,7 @@ from trl import GRPOConfig, maybe_apply_chat_template
 from arc_utils.utils import parse_response
 
 # from GRPOTrainer import GRPOTrainer
-from trainers.ARCTrainer import GRPOTrainer
+from trainers.TTT_GRPOTrainer import TTT_GRPOTrainer
 import prompts as prompts_getter
 import numpy as np
 from typing import List
@@ -46,11 +46,10 @@ def parse_arguments():
     parser.add_argument("--date", type=str, default="")
     parser.add_argument("--related", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--task", type=str, default="semantle")
-    parser.add_argument("--learning_rate", type=float, default=5e-5)
+    parser.add_argument("--learning_rate", type=float, default=1e-5)
     parser.add_argument("--num_train_epochs", type=int, default=15)
-    parser.add_argument("--batch_size", type=int, default=5)
+    parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--grad_acc_steps", type=int, default=1)
-    parser.add_argument("--num_generations", type=int, default=5)
     parser.add_argument("--num_generations", type=int, default=10)
     parser.add_argument("--online_temperature", type=float, default=1.0)
     parser.add_argument("--online_max_completion_length", type=int, default=512)
@@ -186,7 +185,7 @@ def main(params):
         use_vllm=params["use_vllm"],
         max_prompt_length=None,
     )
-    trainer = GRPOTrainer(
+    trainer = TTT_GRPOTrainer(
         model=model,
         processing_class=tokenizer,
         # peft_config=peft_config, # no need with unsloth
