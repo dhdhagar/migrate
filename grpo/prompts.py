@@ -2,7 +2,7 @@ import json
 import itertools
 import numpy as np
 import random
-import arc_utils.utils as arc_utils
+from trl import maybe_apply_chat_template
 
 
 def get_semantle_prompt(batch_size):
@@ -175,7 +175,9 @@ def get_arc_datasets(
                    x in dataset]
         # Only keep prompts that are shorter than the maximum sequence length
         if max_seq_len is not None:
-            dataset = [x for x in dataset if len(tokenizer(x["prompt"])["input_ids"]) <= max_seq_len]
+            dataset = [x for x in dataset if len(
+                tokenizer(maybe_apply_chat_template({"prompt": x["prompt"]}, tokenizer)['prompt'])[
+                    "input_ids"]) <= max_seq_len]
         training_dataset += dataset
     random.shuffle(training_dataset)
 
@@ -195,7 +197,8 @@ def get_arc_datasets(
     validation_dataset = create_arc_prompts(training_examples, validation_input, do_permutation)
     # Only keep prompts that are shorter than the maximum sequence length
     if max_seq_len is not None:
-        validation_dataset = [x for x in validation_dataset if len(tokenizer(x)["input_ids"]) <= max_seq_len]
+        validation_dataset = [x for x in validation_dataset if len(
+            tokenizer(maybe_apply_chat_template({"prompt": x}, tokenizer)['prompt'])["input_ids"]) <= max_seq_len]
     print("Validation dataset size:", len(validation_dataset))
     if len(validation_dataset) > maximum_eval_size:
         validation_dataset = validation_dataset[-maximum_eval_size:]
@@ -209,7 +212,8 @@ def get_arc_datasets(
     test_dataset = create_arc_prompts(all_training_examples, str(test_input), do_permutation)
     # Only keep prompts that are shorter than the maximum sequence length
     if max_seq_len is not None:
-        test_dataset = [x for x in test_dataset if len(tokenizer(x)["input_ids"]) <= max_seq_len]
+        test_dataset = [x for x in test_dataset if len(
+            tokenizer(maybe_apply_chat_template({"prompt": x}, tokenizer)['prompt'])["input_ids"]) <= max_seq_len]
     print("Test dataset size:", len(test_dataset))
     if len(test_dataset) > maximum_eval_size:
         test_dataset = test_dataset[-maximum_eval_size:]
