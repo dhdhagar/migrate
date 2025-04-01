@@ -24,6 +24,7 @@ from transformers.utils import (
 )
 import prompts as prompts_getter
 import arc_utils.utils as arc_utils
+import arc_utils.hf_grpo_clone as hf_grpo_clone
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -675,24 +676,8 @@ class GRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
-    def _get_per_token_logps_clone(self, model, input_ids, attention_mask, logits_to_keep):
-        # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
-        logits = model(input_ids=input_ids, attention_mask=attention_mask, logits_to_keep=logits_to_keep + 1).logits
-        logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
-
-        input_ids = input_ids[:, -logits_to_keep:]
-        # For transformers<=4.48, logits_to_keep argument isn't supported, so here we drop logits ourselves.
-        # See https://github.com/huggingface/trl/issues/2770
-        logits = logits[:, -logits_to_keep:]
-        # Divide logits by sampling temperature.
-        # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
-        _temp = self.train_temperature
-        if self.use_train_temp_schedule:
-            # Linearly scale temperature to 1 starting from 0 based on global training step
-            _temp = self.train_temperature * (self.state.global_step / self.state.max_steps)
-            _temp += (0 if _temp > 0 else 1e-2)
-        logits = logits / _temp
-        return selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
+    def _get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep):
+        return hf_grpo_clone._get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep)
 
     def _get_completion_logps(self, model, inputs, gold=False):
         if not gold:
@@ -749,7 +734,8 @@ class GRPOTrainer(GRPOTrainer):
             self._metrics["train"]["pro_loss"].append(_pro_loss.item())
 
         if self.grpo_weight > 0:
-            grpo_loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)[0]
+            grpo_loss = self.grpo_weight * \
+                        hf_grpo_clone.compute_loss(self, model, inputs, return_outputs, num_items_in_batch)[0]
             if loss is None or loss == 0:
                 loss = grpo_loss
             else:
