@@ -370,11 +370,11 @@ class GRPOTrainer(GRPOTrainer):
             idx = random.randint(0, len(completions) - 1)
             if self.inject_best_at_lowest_score:
                 idx = np.argmin(rewards)
-                self.best_idx_replaced = idx
             # Only replace if the best guess is better than the current guess
             if replacement[1] > rewards[idx]:
                 completions[idx] = replacement[0]
                 rewards[idx] = replacement[1]
+                self.best_idx_replaced = idx
             else:
                 self.best_idx_replaced = None
 
@@ -549,8 +549,14 @@ class GRPOTrainer(GRPOTrainer):
         completion_ids = self.processing_class(
             completions, return_tensors="pt", add_special_tokens=False, padding=True
         ).input_ids
+        gold_completion_ids = self.processing_class(
+            [self.arc_leave_out], return_tensors="pt", add_special_tokens=False, padding=True
+        ).input_ids
         prompt_inputs_repeated = torch.repeat_interleave(prompt_ids, len(completion_ids), dim=0)
         prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1).to(device)
+        # Add prompt to gold completion
+        prompt_gold_inputs_repeated = torch.repeat_interleave(prompt_ids, len(gold_completion_ids), dim=0)
+        prompt_gold_completion_ids = torch.cat([prompt_gold_inputs_repeated, gold_completion_ids], dim=1).to(device)
 
         self.num_generations = len(completions)
         self.iteration += 1
@@ -559,6 +565,7 @@ class GRPOTrainer(GRPOTrainer):
         prompt_length = prompt_ids.size(1)
         prompt_ids = prompt_completion_ids[:, :prompt_length]
         completion_ids = prompt_completion_ids[:, prompt_length:]
+        gold_completion_ids = prompt_gold_completion_ids[:, prompt_length:]
 
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.processing_class.eos_token_id
@@ -566,6 +573,13 @@ class GRPOTrainer(GRPOTrainer):
         eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
         sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
         completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
+
+        # Repeat for gold
+        is_eos = gold_completion_ids == self.processing_class.eos_token_id
+        eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
+        eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
+        sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
+        gold_completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
 
         # Concatenate prompt_mask with completion_mask for logit computation
         prompt_mask = prompt_mask.to(device)
@@ -654,6 +668,8 @@ class GRPOTrainer(GRPOTrainer):
             "prompt_mask": prompt_mask,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
+            "gold_completion_ids": gold_completion_ids,
+            "gold_completion_mask": gold_completion_mask,
             "old_per_token_logps": old_per_token_logps,
             "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
@@ -678,25 +694,29 @@ class GRPOTrainer(GRPOTrainer):
         logits = logits / _temp
         return selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
 
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        loss = None
-
-        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
-        completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+    def _get_completion_logps(self, model, inputs, gold=False):
+        if not gold:
+            completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+            prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+        else:
+            completion_ids, completion_mask = inputs["gold_completion_ids"], inputs["gold_completion_mask"]
+            prompt_ids, prompt_mask = inputs["prompt_ids"][:len(completion_ids)], inputs["prompt_mask"][
+                                                                                  :len(completion_mask)]
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         per_token_logps = self._get_per_token_logps_clone(model, input_ids, attention_mask, logits_to_keep)
+        completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / \
+                           attention_mask[:, -logits_to_keep:].sum(dim=1)
+        return completion_logps
 
-        completion_logps = None
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        loss = None
+
         if self.nll_weight > 0:
-            completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[
-                                                                                                    :,
-                                                                                                    -logits_to_keep:].sum(
-                dim=1)
             # Use the gold completion logp for NLL
-            oracle_logp = completion_logps[self.best_idx_replaced]
-            nll_loss = self.nll_weight * -oracle_logp
+            completion_logps = self._get_completion_logps(model, inputs, gold=True)[0]
+            nll_loss = self.nll_weight * -completion_logps
             if loss is None or loss == 0:
                 loss = nll_loss
             else:
@@ -704,12 +724,7 @@ class GRPOTrainer(GRPOTrainer):
             self._metrics["train"]["nll_loss"].append(nll_loss.item())
 
         if self.pro_loss_weight > 0:
-            if completion_logps is None:
-                completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(
-                    dim=1) / attention_mask[
-                             :,
-                             -logits_to_keep:].sum(
-                    dim=1)
+            completion_logps = self._get_completion_logps(model, inputs)
             sorted_order = torch.argsort(inputs["advantages"], descending=True)
             sorted_completion_logps = completion_logps[sorted_order]
             if len(sorted_completion_logps.size()) == 1:
