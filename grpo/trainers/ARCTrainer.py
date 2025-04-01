@@ -681,62 +681,65 @@ class GRPOTrainer(GRPOTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         loss = None
 
-        if self.grpo_weight > 0:
-            loss = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
-            # TODO: Add support for using GRPO + NLL
-        else:
-            prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
-            completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
-            input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
-            attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
-            logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
-            per_token_logps = self._get_per_token_logps_clone(model, input_ids, attention_mask, logits_to_keep)
+        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+        completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+        input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
+        attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
+        logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
+        per_token_logps = self._get_per_token_logps_clone(model, input_ids, attention_mask, logits_to_keep)
 
-            completion_logps = None
-            if self.nll_weight > 0:
-                # breakpoint()
-                completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[
-                                                                                                        :,
-                                                                                                        -logits_to_keep:].sum(
+        completion_logps = None
+        if self.nll_weight > 0:
+            completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[
+                                                                                                    :,
+                                                                                                    -logits_to_keep:].sum(
+                dim=1)
+            # Use the gold completion logp for NLL
+            oracle_logp = completion_logps[self.best_idx_replaced]
+            nll_loss = self.nll_weight * -oracle_logp
+            if loss is None or loss == 0:
+                loss = nll_loss
+            else:
+                loss += nll_loss
+            self._metrics["train"]["nll_loss"].append(nll_loss.item())
+
+        if self.pro_loss_weight > 0:
+            if completion_logps is None:
+                completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(
+                    dim=1) / attention_mask[
+                             :,
+                             -logits_to_keep:].sum(
                     dim=1)
-                # Use the gold completion logp for NLL
-                oracle_logp = completion_logps[self.best_idx_replaced]
-                nll_loss = self.nll_weight * -oracle_logp
-                if loss is None or loss == 0:
-                    loss = nll_loss
-                else:
-                    loss += nll_loss
-                self._metrics["train"]["nll_loss"].append(nll_loss.item())
+            sorted_order = torch.argsort(inputs["advantages"], descending=True)
+            sorted_completion_logps = completion_logps[sorted_order]
+            if len(sorted_completion_logps.size()) == 1:
+                sorted_completion_logps = sorted_completion_logps.unsqueeze(0)
 
-            if self.pro_loss_weight > 0:
-                if completion_logps is None:
-                    completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(
-                        dim=1) / attention_mask[
-                                 :,
-                                 -logits_to_keep:].sum(
-                        dim=1)
-                sorted_order = torch.argsort(inputs["advantages"], descending=True)
-                sorted_completion_logps = completion_logps[sorted_order]
-                if len(sorted_completion_logps.size()) == 1:
-                    sorted_completion_logps = sorted_completion_logps.unsqueeze(0)
+            ignore_idx = None
+            if self.pro_loss_only_positive:
+                try:
+                    # Get the first negative advantage in the sorted order
+                    first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
+                    ignore_idx = first_zero_or_negative + 1
+                except:
+                    print("No negative advantage found, using all completions for PRO loss")
+                    pass
 
-                ignore_idx = None
-                if self.pro_loss_only_positive:
-                    try:
-                        # Get the first negative advantage in the sorted order
-                        first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
-                        ignore_idx = first_zero_or_negative + 1
-                    except:
-                        print("No negative advantage found, using all completions for PRO loss")
-                        pass
+            _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps,
+                                                                  start_neg_idx_to_ignore=ignore_idx)
+            if loss is None or loss == 0:
+                loss = _pro_loss
+            else:
+                loss += _pro_loss
+            self._metrics["train"]["pro_loss"].append(_pro_loss.item())
 
-                _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(sorted_completion_logps,
-                                                                      start_neg_idx_to_ignore=ignore_idx)
-                if loss is None or loss == 0:
-                    loss = _pro_loss
-                else:
-                    loss += _pro_loss
-                self._metrics["train"]["pro_loss"].append(_pro_loss.item())
+        if self.grpo_weight > 0:
+            grpo_loss = self.grpo_weight * super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+            if loss is None or loss == 0:
+                loss = grpo_loss
+            else:
+                loss += grpo_loss
+            self._metrics["train"]["grpo_loss"].append(grpo_loss.item())
 
         self.progress_callback.loss = np.round(loss.item(), 4)
 
