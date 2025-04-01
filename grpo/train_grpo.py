@@ -111,7 +111,7 @@ def create_dataset(params):
         )
 
 
-def setup_logging(params):
+def setup_logging(params, validation_data, test_data):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") if params["date"] is None else params["date"]
     logdir = f'logs/{params["strategy"]}/{params["target"]}'
     os.makedirs(logdir, exist_ok=True)
@@ -119,7 +119,10 @@ def setup_logging(params):
     wandb_id = f'{params["strategy"]}-{params["target"]}-{timestamp}'
     if params["wandb_prefix"] is not None:
         wandb_id = f"{params['wandb_prefix']}-{wandb_id}"
-    init_data = {"params": params, "guesses": [], "validation": []}
+    init_data = {"params": params, "task": {
+        "validation": {"problem": str(validation_data["problem"]), "solution": str(validation_data["solution"])},
+        "test": {"problem": str(test_data["problem"]), "solution": str(test_data["solution"])},
+    }, "guesses": [], "validation": []}
     with open(logfile, "w") as file:
         file.write(json.dumps(init_data, indent=2))
     return init_data, logdir, logfile, wandb_id
@@ -185,7 +188,7 @@ def main(params):
     # model, tokenizer, peft_config = setup_model(params)
     model, tokenizer = setup_model(params)
 
-    data, logdir, logfile, wandb_id = setup_logging(params)
+    data, logdir, logfile, wandb_id = setup_logging(params, validation_dataset, test_dataset)
 
     if params["save_datasets"]:
         os.makedirs(logdir, exist_ok=True)
@@ -355,11 +358,12 @@ def main(params):
         wandb.run.summary["test/solved_majority"] = data["test_solved_majority"]
         wandb.run.summary["test/score_majority"] = data["test_majority"]["score"]
         wandb.run.summary["test/solved_majority_pass2"] = data["test_solved_majority_pass2"]
-        wandb.run.summary["test/score_majority_pass2"] = max(data["test_majority"]["score"], data["test_samples"][1]["score"] if len(data["test_samples"]) > 1 else 0)
+        wandb.run.summary["test/score_majority_pass2"] = max(data["test_majority"]["score"],
+                                                             data["test_samples"][1]["score"] if len(
+                                                                 data["test_samples"]) > 1 else 0)
         wandb.run.summary["test/solved_oracle"] = data["test_solved_oracle"]
         wandb.run.summary["test/best_score"] = data["test_best"]["score"]
         wandb.run.summary["test/best_completion"] = data["test_best"]
-
 
         print(f"TEST SOLVED @ pass1: {data['test_solved_majority']}")
         print(f"TEST SOLVED @ pass2: {data['test_solved_majority_pass2']}")

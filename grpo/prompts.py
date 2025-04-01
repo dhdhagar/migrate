@@ -169,7 +169,8 @@ def get_arc_datasets(
         leave_out_input = str(np.array(leave_out["input"]))
         possible_context_examples = training_examples[:i] + training_examples[i + 1:]
         dataset = create_arc_prompts(possible_context_examples, leave_out_input, do_permutation)
-        dataset = [{"prompt": x, "problem": np.array(leave_out["input"]), "solution": np.array(leave_out["output"])} for x
+        dataset = [{"prompt": x, "problem": np.array(leave_out["input"]), "solution": np.array(leave_out["output"])} for
+                   x
                    in dataset]
         training_dataset += dataset
     random.shuffle(training_dataset)
@@ -192,17 +193,18 @@ def get_arc_datasets(
     if len(validation_dataset) > maximum_eval_size:
         validation_dataset = validation_dataset[-maximum_eval_size:]
         print("Clipping validation dataset size to:", len(validation_dataset))
-    validation_dataset = {"dataset": validation_dataset, "solution": np.array(validation_example["output"])}
+    validation_dataset = {"dataset": validation_dataset, "problem": np.array(validation_example["input"]),
+                          "solution": np.array(validation_example["output"])}
 
     # Creating test prompts
     all_training_examples = data[task_id]["train"]
-    test_input = str(np.array(data[task_id]["test"][0]["input"]))
-    test_dataset = create_arc_prompts(all_training_examples, test_input, do_permutation)
+    test_input = np.array(data[task_id]["test"][0]["input"])
+    test_dataset = create_arc_prompts(all_training_examples, str(test_input), do_permutation)
     print("Test dataset size:", len(test_dataset))
     if len(test_dataset) > maximum_eval_size:
         test_dataset = test_dataset[-maximum_eval_size:]
         print("Clipping test dataset size to:", len(test_dataset))
-    test_dataset = {"dataset": test_dataset, "solution": np.array(data_solutions[task_id][0])}
+    test_dataset = {"dataset": test_dataset, "problem": test_input, "solution": np.array(data_solutions[task_id][0])}
 
     print()
     return training_dataset, validation_dataset, test_dataset
