@@ -735,7 +735,7 @@ class GRPOTrainer(GRPOTrainer):
 
         if self.grpo_weight > 0:
             grpo_loss = self.grpo_weight * \
-                        hf_grpo_clone.compute_loss(self, model, inputs, return_outputs, num_items_in_batch)[0]
+                        hf_grpo_clone.compute_loss(self, model, inputs, return_outputs, num_items_in_batch)
             if loss is None or loss == 0:
                 loss = grpo_loss
             else:
