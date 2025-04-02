@@ -75,6 +75,7 @@ def parse_arguments():
     parser.add_argument("--max_test_size", type=int, default=64)
     parser.add_argument("--validation_interval", type=int, default=5)
     parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--max_seq_len", type=int, default=2048)
     args = parser.parse_args()
     return args
 

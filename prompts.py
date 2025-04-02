@@ -2,7 +2,7 @@ import json
 import itertools
 import numpy as np
 import random
-import arc_utils.utils as arc_utils
+from trl import maybe_apply_chat_template
 
 
 def get_semantle_prompt(batch_size):
@@ -112,6 +112,15 @@ Your answer must follow the same format.
 
 Now apply the transformation to the provided test case."""
 
+    system_prompt_for_neighbors = """You are a helpful chatbot with high attention to detail who is not talkative and \
+responds only with the answer and no additional conversation. There is a specific grid transformation that we want to \
+use on all input grids and we are trying to guess the output grid for a specific provided input grid.
+
+Here is the input grid and my guess for the output grid:
+%s -> %s
+
+Provide a variation of my guess that could be the correct answer."""
+
 
 def create_arc_prompts(possible_context_examples, user_input, do_permutation=False):
     dataset = []
@@ -122,7 +131,7 @@ def create_arc_prompts(possible_context_examples, user_input, do_permutation=Fal
         else:
             context_combinations = list(itertools.combinations(possible_context_examples, i))
 
-        # Loop over all possible contexts from leaving out i and of size j
+        # Loop over all possible contexts of size i
         for context in context_combinations:
             # Build context examples
             context_str = ""
@@ -141,6 +150,13 @@ def create_arc_prompts(possible_context_examples, user_input, do_permutation=Fal
     return dataset
 
 
+def get_arc_neighborhood_samples_prompt(target_input, target_output):
+    return [
+        {"content": ARC.system_prompt_for_neighbors % (target_input, target_output), "role": "system"},
+        {"content": f"{target_input} -> ", "role": "user"},
+    ]
+
+
 def get_arc_datasets(
     task_id,
     arc_dataset_file,
@@ -150,6 +166,8 @@ def get_arc_datasets(
     max_validation_size=64,
     max_test_size=64,
     use_permutations=False,
+    tokenizer=None,
+    max_seq_len=2048,
 ):
     """
     Create ARC training, validation, and testing prompt datasets.
@@ -175,33 +193,68 @@ def get_arc_datasets(
     validation_example = data[task_id]["train"][0]
 
     print("Available input-output examples", len(data[task_id]["train"]))
-    print("PERMUTE", use_permutations)
 
+    # Create training prompts
     training_dataset = []
     for i, leave_out in enumerate(training_examples):
         leave_out_input = str(np.array(leave_out["input"]))
         possible_context_examples = training_examples[:i] + training_examples[i + 1 :]
         dataset = create_arc_prompts(possible_context_examples, leave_out_input, use_permutations)
-        dataset = [{"prompt": x, "solution": np.array(leave_out["output"])} for x in dataset]
+        dataset = [
+            {"prompt": x, "problem": np.array(leave_out["input"]), "solution": np.array(leave_out["output"])}
+            for x in dataset
+        ]
+        # Only keep prompts that are shorter than the maximum sequence length
+        if max_seq_len is not None:
+            dataset = [
+                x
+                for x in dataset
+                if len(tokenizer(maybe_apply_chat_template({"prompt": x["prompt"]}, tokenizer)["prompt"])["input_ids"])
+                <= max_seq_len
+            ]
         training_dataset += dataset
+
     # Multiply the dataset until it's longer than the minimum length
     print("Training dataset size", len(training_dataset))
-    training_dataset = training_dataset * ((min_training_size // len(training_dataset)) + 1)
-    print("Training dataset size", len(training_dataset))
+    if len(training_dataset) < min_training_size:
+        training_dataset = training_dataset * ((min_training_size // len(training_dataset)) + 1)
+        print("Extending training dataset to:", len(training_dataset))
+    if len(training_dataset) > max_training_size:
+        # Sort by prompt length
+        training_dataset = training_dataset[-max_training_size:]
+        print("Clipping training dataset size to:", len(training_dataset))
     random.shuffle(training_dataset)
-    training_dataset = training_dataset[:max_training_size]
 
+    # Create validation prompts
+    validation_input = str(np.array(validation_example["input"]))
+    validation_dataset = create_arc_prompts(training_examples, validation_input, use_permutations)
+    if len(validation_dataset) > max_validation_size:
+        validation_dataset = validation_dataset[-max_validation_size:]
+        print("Clipping validation dataset size to:", len(validation_dataset))
+    validation_dataset = {
+        "dataset": validation_dataset,
+        "problem": np.array(validation_example["input"]),
+        "solution": np.array(validation_example["output"]),
+    }
+
+    # Create test prompts
     all_training_examples = data[task_id]["train"]
     leave_out_input = str(np.array(data[task_id]["test"][0]["input"]))
-    test_dataset = create_arc_prompts(all_training_examples, leave_out_input, use_permutations)[-max_test_size:]
-    print("Test dataset size", len(test_dataset))
-    test_dataset = {"dataset": test_dataset, "solution": np.array(data_solutions[task_id][0])}
-
-    dataset = create_arc_prompts(training_examples, str(np.array(validation_example["input"])), use_permutations)[
-        -max_validation_size:
-    ]
-    print("Validation dataset size", len(dataset))
-    validation_dataset = {"dataset": dataset, "solution": np.array(validation_example["output"])}
+    test_input = np.array(data[task_id]["test"][0]["input"])
+    test_dataset = create_arc_prompts(all_training_examples, str(test_input), use_permutations)
+    # Only keep prompts that are shorter than the maximum sequence length
+    if max_seq_len is not None:
+        test_dataset = [
+            x
+            for x in test_dataset
+            if len(tokenizer(maybe_apply_chat_template({"prompt": x}, tokenizer)["prompt"])["input_ids"]) <= max_seq_len
+        ]
+    print("Test dataset size:", len(test_dataset))
+    if len(test_dataset) > max_test_size:
+        test_dataset = test_dataset[-max_test_size:]
+        print("Clipping test dataset size to:", len(test_dataset))
+    test_dataset = {"dataset": test_dataset, "problem": test_input, "solution": np.array(data_solutions[task_id][0])}
+    #
 
     return training_dataset, validation_dataset, test_dataset
 
