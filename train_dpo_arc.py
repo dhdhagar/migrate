@@ -43,7 +43,7 @@ def parse_arguments():
     parser.add_argument("--num_guesses", type=int, default=10)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--warmstart", type=float, default=0)
-    parser.add_argument("--strategy", type=str, default="Oracle_Single")
+    parser.add_argument("--strategy", type=str, default="Greedy_Gold")
     parser.add_argument("--date", type=str, default="")
     parser.add_argument("--related", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--task", type=str, default="semantle")
@@ -104,35 +104,12 @@ def setup_logging(params):
 
 
 def setup_model(params):
-    # peft_config = LoraConfig(
-    # peft_config = FastLanguageModel.get_peft_model(
-    #     r=128,
-    #     lora_alpha=32,
-    #     lora_dropout=0.0,
-    #     bias="none",
-    #     task_type="CAUSAL_LM",
-    #     # target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-    #     target_modules=["q_proj", "v_proj"],
-    #     use_gradient_checkpointing = "unsloth"
-    # )
-    # if params["4bit"]:
-    #     quant_config = BitsAndBytesConfig(
-    #         load_in_4bit=True,
-    #         bnb_4bit_use_double_quant=True,
-    #         bnb_4bit_quant_type="nf4",
-    #         bnb_4bit_compute_dtype=torch.bfloat16,
-    #     )
-    # else:
-    #     quant_config = BitsAndBytesConfig(load_in_8bit=True)
-
     model, tokenizer = FastLanguageModel.from_pretrained(
         params["model"],
         device_map="auto",
         max_lora_rank=params["lora_rank"],
         gpu_memory_utilization=0.8,
         fast_inference=params["use_vllm"],
-        # quantization_config=quant_config,
-        # torch_dtype=torch.bfloat16,
     )
     model = FastLanguageModel.get_peft_model(
         model,
@@ -140,21 +117,14 @@ def setup_model(params):
         lora_alpha=params["lora_alpha"],
         lora_dropout=params["lora_dropout"],
         bias="none",
-        # target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-        target_modules=["q_proj", "v_proj"],
+        target_modules=params["target_modules"],
         use_rslora=False,
         loftq_config=None,
         # use_gradient_checkpointing = "unsloth"
     )
-    # tokenizer = AutoTokenizer.from_pretrained(params["model"]) # no need with unsloth
     tokenizer.pad_token = tokenizer.eos_token
     model.generation_config.pad_token_id = tokenizer.pad_token_id
-    return model, tokenizer  # , peft_config
-
-
-# Placeholder reward func. We process and compute our own rewards in the trainer
-def reward_len(completions, **kwargs):
-    return 1.0
+    return model, tokenizer
 
 
 class HammingJudge(BasePairwiseJudge):
@@ -179,6 +149,7 @@ class HammingJudge(BasePairwiseJudge):
                     train_rewards.append(res[1][0])
                     train_rewards.append(res[1][1])
                 print(train_rewards)
+
                 wandb.log({"training/mean_rewards": np.mean(train_rewards)})
                 wandb.log({"training/max_rewards": np.max(train_rewards)})
         with open(self.logfile, "w") as file:
@@ -240,7 +211,6 @@ def main(params):
         strategy=params["strategy"],
         sample_related=params["related"],
         task=params["task"],
-        arc_dataset_file=params["arc_dataset_file"],
         # generation_args={},
     )
     start_time = time.time()

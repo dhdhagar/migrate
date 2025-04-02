@@ -19,15 +19,14 @@ from trl.models.utils import unwrap_model_for_generation
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import transformers
 from transformers import is_apex_available, is_wandb_available
 from transformers.training_args import OptimizerNames
 from transformers.utils import is_peft_available, is_sagemaker_mp_enabled, logging
 import itertools
-import random
 from packaging import version
 import prompts as prompts_getter
 import arc_utils.utils as arc_utils
+from .utils.DPO_utils import create_pairs
 
 if is_peft_available():
     from peft import PeftModel, get_peft_model
@@ -84,31 +83,24 @@ class TTT_DPOTrainer(OnlineDPOTrainer):
     def __init__(
         self,
         target,
-        # batch_size,
         strategy,
         logfile,
-        # warmstart,
-        # n_reps,
         sample_related,
         task,
         validation_example,
         validation_interval,
-        arc_dataset_file,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.ref_tokenizer = None
         self.target = target
-        self.batch_size = 5
         self.logfile = logfile
         self.strategy = strategy
         self.past_completions = {}
-        self.g = 5
-        self.n_reps = 5
         self.iteration = 0
         self.sample_related = sample_related
         self.task = task
+        self.strategy = "Greedy_Gold"
 
         self.validation_example = validation_example
         self.validation_interval = validation_interval
@@ -145,14 +137,6 @@ class TTT_DPOTrainer(OnlineDPOTrainer):
             return related_completions
         except Exception as _:
             return None
-
-    def update_past_completions(self, responses, bb_scores):
-        guesses = list(itertools.chain.from_iterable(responses))
-        scores = list(itertools.chain.from_iterable(bb_scores))
-        for completion, score in zip(guesses, scores):
-            self.past_completions[completion] = score
-
-            pass
 
     def run_validation(self, model):
         prompts = self.validation_example["dataset"]
@@ -220,7 +204,6 @@ class TTT_DPOTrainer(OnlineDPOTrainer):
         model.train()
 
         prompts = inputs["prompt"]
-        # batch_size = len(prompts)
         batch_size = len(prompts)
 
         if self.args.use_vllm:
@@ -228,33 +211,12 @@ class TTT_DPOTrainer(OnlineDPOTrainer):
         else:
             prompt_ids, prompt_mask, completion_ids, completion_mask = self._generate(model, prompts)
 
-        eos_token_id = self.processing_class.eos_token_id
-        pad_token_id = self.processing_class.pad_token_id
-        decoded_completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-
-        completion_ids = (
-            self.processing_class(
-                decoded_completions[:batch_size]
-                + [str(x) for x in inputs["solution"]]
-                + [str(x) for x in inputs["solution"]]
-                + decoded_completions[batch_size:]
-                + decoded_completions,
-                padding=True,
-                return_tensors="pt",
+        solutions = inputs["solution"]
+        if self.strategy != "Vanilla":
+            completion_ids, completion_mask, prompt_ids, prompt_mask, solutions = create_pairs(
+                self, completion_ids, prompt_ids, prompt_mask, inputs["solution"]
             )
-            .to(self.args.device)
-            .input_ids
-        )
-        completion_ids, completion_mask = truncate_right(completion_ids, eos_token_id, pad_token_id)
-        prompt_ids = torch.cat(
-            [prompt_ids[:batch_size], prompt_ids, prompt_ids[batch_size:], prompt_ids],
-            dim=0,
-        )
-        prompt_mask = torch.cat(
-            [prompt_mask[:batch_size], prompt_mask, prompt_mask[batch_size:], prompt_mask],
-            dim=0,
-        )
-        batch_size = len(completion_ids) // 2
+            batch_size = len(completion_ids) // 2
 
         contain_eos_token = torch.any(completion_ids == self.processing_class.eos_token_id, dim=-1)
 
@@ -266,8 +228,6 @@ class TTT_DPOTrainer(OnlineDPOTrainer):
                 with self.model.disable_adapter():
                     ref_logprobs = self._forward(self.model, prompt_ids, prompt_mask, completion_ids, completion_mask)
 
-        print(logprobs)
-        print(ref_logprobs)
         # Decode the completions, and format them if the input is conversational
         device = logprobs.device
         completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
@@ -287,7 +247,7 @@ class TTT_DPOTrainer(OnlineDPOTrainer):
                 completions = [template.render(messages=completion) for completion in completions]
 
             ranks_of_first_completion = self.judge.judge(
-                prompts, list(zip(completions[:batch_size], completions[batch_size:])), solutions=inputs["solution"] * 3
+                prompts, list(zip(completions[:batch_size], completions[batch_size:])), solutions=solutions
             )
 
             # convert ranks to a True/False mask:
