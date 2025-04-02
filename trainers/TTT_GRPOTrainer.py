@@ -25,7 +25,7 @@ from transformers.utils import (
 import prompts as prompts_getter
 import arc_utils.utils as arc_utils
 from .utils.GRPO_utils import apply_strategy
-import arc_utils.hf_grpo_clone as hf_grpo_clone
+import trainers.utils.hf_grpo_clone as hf_grpo_clone
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
