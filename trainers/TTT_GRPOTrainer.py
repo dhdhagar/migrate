@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from torch import nn
 from typing import Any, Union
-from trainers.utils import apply_strategy
 from trl import (
     GRPOTrainer,
     maybe_apply_chat_template,
@@ -18,7 +17,7 @@ from trl.trainer.utils import print_prompt_completions_sample
 from trl.extras.profiling import profiling_context
 from trl.import_utils import is_rich_available
 from accelerate.utils import broadcast_object_list, gather_object, gather
-from transformers import is_wandb_available
+from transformers import is_wandb_available, ProgressCallback
 from transformers.utils import (
     is_apex_available,
     is_sagemaker_mp_enabled,
@@ -52,18 +51,55 @@ def log_response(response, logfile):
         json.dump(data, file, indent=4)
 
 
+class CustomProgressCallback(ProgressCallback):
+    def __init__(self):
+        super(CustomProgressCallback, self).__init__()
+        self.loss = None
+        self.val_acc = None
+        self.train_acc = None
+        self.train_acc_max = None
+
+    def on_step_end(self, args, state, control, **kwargs):
+        super(CustomProgressCallback, self).on_step_end(args, state, control, **kwargs)
+
+        if state.is_world_process_zero:
+            self.training_bar.set_postfix(
+                {
+                    "loss": self.loss,
+                    "train_reward_mean": self.train_acc,
+                    "train_reward_max": self.train_acc_max,
+                    "val_reward_majority": self.val_acc,
+                }
+            )
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if state.is_world_process_zero and self.training_bar is not None:
+            self.training_bar.write("")
+
+
 class TTT_GRPOTrainer(GRPOTrainer):
     def __init__(
         self,
         target,
         strategy,
         logfile,
-        sample_related,
         task,
         arc_dataset_file,
-        validation_example,
+        validation_dataset,
         validation_interval,
         generation_args,
+        grpo_weight,
+        nll_weight,
+        pro_loss_weight,
+        train_temperature=1.0,
+        use_train_temp_schedule=False,
+        inf_batch_size=10,
+        inject_best_at_lowest_score=False,
+        pro_loss_only_positive=False,
+        use_early_stopping=True,
+        neighborhood_sampling=False,
+        neighborhood_sampling_strategy="best",
+        n_neighbors=10,
         *args,
         **kwargs,
     ):
@@ -73,17 +109,32 @@ class TTT_GRPOTrainer(GRPOTrainer):
         self.target = target
         self.past_guesses = {}
         self.strategy = strategy
-        self.sample_related = sample_related
+        self.neighborhood_sampling = neighborhood_sampling
+        self.neighborhood_sampling_strategy = neighborhood_sampling_strategy
+        self.n_neighbors = n_neighbors
         self.task = task
 
         self.arc_sol = None
         self.arc_leave_out = None
         self.arc_past_guesses = {}
         self.arc_dataset_file = arc_dataset_file
-        self.validation_example = validation_example
+        self.validation_dataset = validation_dataset
         self.validation_interval = validation_interval
 
         self.generation_args = generation_args
+        self.grpo_weight = grpo_weight
+        self.nll_weight = nll_weight
+        self.pro_loss_weight = pro_loss_weight
+        self.train_temperature = train_temperature
+        self.use_train_temp_schedule = use_train_temp_schedule
+        self.inf_batch_size = inf_batch_size
+        self.inject_best_at_lowest_score = inject_best_at_lowest_score
+        self.pro_loss_only_positive = pro_loss_only_positive
+        self.use_early_stopping = use_early_stopping
+
+        for callback in self.callback_handler.callbacks:
+            if type(callback) is CustomProgressCallback:
+                self.progress_callback = callback
 
     # Compute black-box score
     def get_bb_score(self, completion1, completion2, verbose=True):
@@ -165,7 +216,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
             return None
 
     def run_validation(self):
-        prompts = self.validation_example["dataset"]
+        prompts = self.validation_dataset["dataset"]
         prompts_text = [
             maybe_apply_chat_template({"prompt": example}, self.processing_class)["prompt"] for example in prompts
         ]
@@ -233,7 +284,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
             parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
             # Get black-box score if completion is valid otherwise 0
             score = (
-                self.get_bb_score(self.validation_example["solution"], parsed_completion)
+                self.get_bb_score(self.validation_dataset["solution"], parsed_completion)
                 if isinstance(parsed_completion, np.ndarray)
                 else 0
             )
@@ -247,7 +298,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]) and sorted_majority[0][1]["count"] > 1:
             self.control.should_training_stop = True
 
-        print("VALIDATION SOLUTION", self.validation_example["solution"])
+        print("VALIDATION SOLUTION", self.validation_dataset["solution"])
         print("VALIDATION ATTEMPT", sorted_majority[0][0])
         print("VALIDATION SCORE", sorted_majority[0][1]["score"])
 
