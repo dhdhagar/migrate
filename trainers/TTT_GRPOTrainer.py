@@ -25,6 +25,7 @@ from transformers.utils import (
 import prompts as prompts_getter
 import arc_utils.utils as arc_utils
 from .utils.GRPO_utils import apply_strategy
+import arc_utils.hf_grpo_clone as hf_grpo_clone
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -216,6 +217,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
             return None
 
     def run_validation(self):
+        print("\n==================\nRUNNING VALIDATION\n==================")
         prompts = self.validation_dataset["dataset"]
         prompts_text = [
             maybe_apply_chat_template({"prompt": example}, self.processing_class)["prompt"] for example in prompts
@@ -262,20 +264,25 @@ class TTT_GRPOTrainer(GRPOTrainer):
             prompt_inputs = self.processing_class(
                 prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
             )
-            prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
-            with unwrap_model_for_generation(
-                self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
-            ) as unwrapped_model:
-                completion_ids = unwrapped_model.generate(
-                    input_ids=prompt_ids.to(self.args.device),
-                    attention_mask=prompt_mask.to(self.args.device),
-                    do_sample=False,
-                    max_new_tokens=self.max_completion_length,
+            completions = []
+            for i in range(0, len(prompt_inputs["input_ids"]), self.inf_batch_size):
+                prompt_ids, prompt_mask = (
+                    prompt_inputs["input_ids"][i : i + self.inf_batch_size],
+                    prompt_inputs["attention_mask"][i : i + self.inf_batch_size],
                 )
-                prompt_length = prompt_inputs["input_ids"].size(1)
-                completions = self.processing_class.batch_decode(
-                    completion_ids[:, prompt_length:], skip_special_tokens=True
-                )
+                with unwrap_model_for_generation(
+                    self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
+                ) as unwrapped_model:
+                    completion_ids = unwrapped_model.generate(
+                        input_ids=prompt_ids.to(self.args.device),
+                        attention_mask=prompt_mask.to(self.args.device),
+                        do_sample=False,
+                        max_new_tokens=self.max_completion_length,
+                    )
+                    prompt_length = prompt_inputs["input_ids"].size(1)
+                    completions.extend(
+                        self.processing_class.batch_decode(completion_ids[:, prompt_length:], skip_special_tokens=True)
+                    )
 
         # Aggregate results
         results = {}
@@ -295,9 +302,12 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
         # Do pass@2 majority voting -- also make sure majority is more than 1
         sorted_majority = sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
-        if any(x[1]["score"] == 1.0 for x in sorted_majority[:2]) and sorted_majority[0][1]["count"] > 1:
+        if self.use_early_stopping and any(x[1]["score"] == 1.0 for x in sorted_majority[:2]):
             self.control.should_training_stop = True
+            print("EARLY STOPPING: Validation majority voting (pass@2) reached 100% accuracy.")
 
+        # Update training bar
+        self.progress_callback.val_acc = np.round(sorted_majority[0][1]["score"], 4)
         print("VALIDATION SOLUTION", self.validation_dataset["solution"])
         print("VALIDATION ATTEMPT", sorted_majority[0][0])
         print("VALIDATION SCORE", sorted_majority[0][1]["score"])
@@ -306,10 +316,24 @@ class TTT_GRPOTrainer(GRPOTrainer):
         with open(self.logfile, "r") as file:
             data = json.load(file)
             data["validation"].append(
-                [{"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]} for x in results.items()]
+                {
+                    "iteration": self.iteration,
+                    "prompts": prompts_text,
+                    "results": [
+                        {"completion": x[0], "score": x[1]["score"], "count": x[1]["count"]}
+                        for x in sorted(results.items(), key=lambda x: x[1]["count"], reverse=True)
+                    ],
+                }
             )
         with open(self.logfile, "w") as file:
-            json.dump(data, file, indent=4)
+            json.dump(data, file, indent=2)
+
+        # Print scores
+        print(
+            "Reward for the top-2 majority-voted completions:",
+            [(x[1]["score"], x[1]["count"]) for x in sorted_majority[:2]],
+        )
+        print(f"Validation results saved to {self.logfile}\n")
 
     def _prepare_inputs(self, inputs: dict[str, Union[torch.Tensor, Any]]) -> dict[str, Union[torch.Tensor, Any]]:
         if self.iteration % self.validation_interval == 0:
@@ -327,18 +351,29 @@ class TTT_GRPOTrainer(GRPOTrainer):
             inputs = self._generate_and_score_completions(inputs)
         return inputs
 
+    def _add_to_batch(self, replacement, completions, rewards):
+        if replacement is not None:
+            idx = random.randint(0, len(completions) - 1)
+            if self.inject_best_at_lowest_score:
+                idx = np.argmin(rewards)
+            # Only replace if the best guess is better than the current guess
+            if replacement[1] > rewards[idx]:
+                completions[idx] = replacement[0]
+                rewards[idx] = replacement[1]
+                self.best_idx_replaced = idx
+            else:
+                self.best_idx_replaced = None
+
     def _generate_and_score_completions(
         self, inputs: dict[str, Union[torch.Tensor, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
-        # Run validation check
 
         device = self.accelerator.device
         prompts = [x["prompt"] for x in inputs]
 
         self.arc_leave_out = str(inputs[0]["solution"])
+        self.arc_prob = np.array(inputs[0]["problem"])
         self.arc_sol = np.array(inputs[0]["solution"])
-        # print("LEAVE OUT IDX:", self.arc_leave_out)
-        # print("GOLD SOLUTION\n", self.arc_sol)
 
         # Load/initialize past guesses according to leave-out
         if self.arc_leave_out in self.arc_past_guesses:
@@ -346,9 +381,6 @@ class TTT_GRPOTrainer(GRPOTrainer):
         else:
             self.past_guesses = {}
             self.arc_past_guesses[self.arc_leave_out] = self.past_guesses
-        # Training-Oracle: Add the gold solution to the past guesses (greedy_single will select this as chosen)
-        sol_str = str(self.arc_sol)
-        self.past_guesses[sol_str] = 1.0  # Black-box score of 1
 
         prompts_text = [maybe_apply_chat_template(example, self.processing_class)["prompt"] for example in inputs]
         prompt_inputs = self.processing_class(
@@ -403,31 +435,86 @@ class TTT_GRPOTrainer(GRPOTrainer):
             completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
         else:
             # Regular generation path
-            with unwrap_model_for_generation(
-                self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
-            ) as unwrapped_model:
-                completion_ids = unwrapped_model.generate(
-                    input_ids=prompt_ids.to(device),
-                    attention_mask=prompt_mask.to(device),
-                    generation_config=self.generation_config,
-                    **self.generation_args,
+            completions = []
+            for i in range(0, len(prompt_ids), self.inf_batch_size):
+                _prompt_ids, _prompt_mask = (
+                    prompt_ids[i : i + self.inf_batch_size],
+                    prompt_mask[i : i + self.inf_batch_size],
                 )
-                prompt_length = prompt_inputs["input_ids"].size(1)
-                completions = self.processing_class.batch_decode(
-                    completion_ids[:, prompt_length:], skip_special_tokens=True
-                )
+                with unwrap_model_for_generation(
+                    self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
+                ) as unwrapped_model:
+                    completion_ids = unwrapped_model.generate(
+                        input_ids=_prompt_ids.to(device),
+                        attention_mask=_prompt_mask.to(device),
+                        generation_config=self.generation_config,
+                        temperature=self.temperature,
+                        max_new_tokens=self.max_completion_length,
+                        **self.generation_args,
+                    )
+                    prompt_length = _prompt_ids.size(1)
+                    completions.extend(
+                        self.processing_class.batch_decode(completion_ids[:, prompt_length:], skip_special_tokens=True)
+                    )
 
         for completion in completions:
             guesses = [arc_utils.parse_response(completion)]
             bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
             responses.append([completion if x.size == 0 else str(x) for x in guesses])
 
-        # Create completions and corresponding rewards
-        completions, rewards = apply_strategy(self, responses, bb_scores)
+        # Sort by rewards
+        completions, bb_scores, responses = zip(
+            *sorted(zip(completions, bb_scores, responses), key=lambda x: x[1], reverse=True)
+        )
+        completions, bb_scores, responses = list(completions), list(bb_scores), list(responses)
 
-        print("COMPLETIONS:\n", completions)
-        print("REWARDS:\n", rewards)
-        print("MEAN REWARD:", np.mean(rewards))
+        # Create completions and corresponding rewards based on the strategy
+        # completions, rewards = apply_strategy(self, responses, bb_scores)
+        completions = list(itertools.chain.from_iterable(responses))
+        rewards = list(itertools.chain.from_iterable(bb_scores))
+        if self.strategy == "gold":
+            # Substitute in the gold/oracle solution
+            gold_solution = (str(self.arc_sol), 1.0)
+
+            if self.neighborhood_sampling:
+                completions, rewards = self.run_neighborhood_sampling(
+                    completions, rewards, gold_solution[0], n_neighbors=self.n_neighbors
+                )
+
+            self._add_to_batch(gold_solution, completions, rewards)
+        elif self.strategy == "greedy":
+            # Substitute in the best solution generated so far
+            best_guess = None
+            if len(self.past_guesses) > 0:
+                best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
+
+            if self.neighborhood_sampling:
+                completions, rewards = self.run_neighborhood_sampling(
+                    completions, rewards, best_guess[0], n_neighbors=self.n_neighbors
+                )
+
+            self._add_to_batch(best_guess, completions, rewards)
+        elif self.strategy == "top_delta":
+            raise NotImplementedError
+        else:
+            # Keep completions and rewards based on the online generated samples
+            self.best_idx_replaced = None
+
+            if self.neighborhood_sampling:
+                completions, rewards = self.run_neighborhood_sampling(
+                    completions, rewards, None, n_neighbors=self.n_neighbors
+                )
+
+        # Compute mean and max rewards excluding the "greedy" replacement
+        mean_reward_minus_replacement = np.mean(
+            [rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced]
+        )
+        max_reward_minus_replacement = np.max([rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced])
+        # Update training bar
+        self.progress_callback.train_acc = np.round(mean_reward_minus_replacement, 4)
+        wandb.log({"train/reward_minus_replacement_mean": mean_reward_minus_replacement})
+        self.progress_callback.train_acc_max = np.round(max_reward_minus_replacement, 4)
+        wandb.log({"train/reward_minus_replacement_max": max_reward_minus_replacement})
 
         # Record guesses into history and log repsonses
         self.update_past_guesses(responses, bb_scores)
@@ -440,6 +527,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
                         list(itertools.chain.from_iterable(bb_scores)),
                     )
                 ],
+                "problem": str(self.arc_prob),
                 "solution": self.arc_leave_out,  # Record for tracing trajectory in post
             },
             self.logfile,
@@ -452,8 +540,14 @@ class TTT_GRPOTrainer(GRPOTrainer):
         completion_ids = self.processing_class(
             completions, return_tensors="pt", add_special_tokens=False, padding=True
         ).input_ids
+        gold_completion_ids = self.processing_class(
+            [self.arc_leave_out], return_tensors="pt", add_special_tokens=False, padding=True
+        ).input_ids
         prompt_inputs_repeated = torch.repeat_interleave(prompt_ids, len(completion_ids), dim=0)
         prompt_completion_ids = torch.cat([prompt_inputs_repeated, completion_ids], dim=1).to(device)
+        # Add prompt to gold completion
+        prompt_gold_inputs_repeated = torch.repeat_interleave(prompt_ids, len(gold_completion_ids), dim=0)
+        prompt_gold_completion_ids = torch.cat([prompt_gold_inputs_repeated, gold_completion_ids], dim=1).to(device)
 
         self.num_generations = len(completions)
         self.iteration += 1
@@ -462,6 +556,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         prompt_length = prompt_ids.size(1)
         prompt_ids = prompt_completion_ids[:, :prompt_length]
         completion_ids = prompt_completion_ids[:, prompt_length:]
+        gold_completion_ids = prompt_gold_completion_ids[:, prompt_length:]
 
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.processing_class.eos_token_id
@@ -469,6 +564,13 @@ class TTT_GRPOTrainer(GRPOTrainer):
         eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
         sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
         completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
+
+        # Repeat for gold
+        is_eos = gold_completion_ids == self.processing_class.eos_token_id
+        eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
+        eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
+        sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
+        gold_completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
 
         # Concatenate prompt_mask with completion_mask for logit computation
         prompt_mask = prompt_mask.to(device)
@@ -580,26 +682,13 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
         # Log the metrics
         mode = "eval" if self.control.should_evaluate else "train"
-
         if mode == "train":
             self._total_train_tokens += self.accelerator.gather_for_metrics(attention_mask.sum()).sum().item()
         self._metrics[mode]["num_tokens"] = [self._total_train_tokens]
-
         completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()
         self._metrics[mode]["completion_length"].append(completion_length)
-
-        # Calculate mean reward per function, but only for samples where the function was applied
-        for i, reward_func in enumerate(self.reward_funcs):
-            if isinstance(reward_func, nn.Module):  # Module instead of PretrainedModel for compat with compiled models
-                reward_func_name = reward_func.config._name_or_path.split("/")[-1]
-            else:
-                reward_func_name = reward_func.__name__
-            # Only calculate mean for samples where this reward function was applied (non-NaN values)
-            mean_rewards = torch.nanmean(rewards_per_func[:, i]).item()
-            self._metrics[mode][f"rewards/{reward_func_name}"].append(mean_rewards)
         self._metrics[mode]["reward"].append(rewards.mean().item())
         self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item())
-
         if self.log_completions and self.state.global_step % self.args.logging_steps == 0:
             prompts_to_log = gather_object(prompts_text)
             completions_to_log = gather_object(completions_text)
@@ -631,7 +720,85 @@ class TTT_GRPOTrainer(GRPOTrainer):
             "prompt_mask": prompt_mask,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
+            "gold_completion_ids": gold_completion_ids,
+            "gold_completion_mask": gold_completion_mask,
             "old_per_token_logps": old_per_token_logps,
             "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
         }
+
+    def _get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep):
+        return hf_grpo_clone._get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep)
+
+    def _get_completion_logps(self, model, inputs, gold=False):
+        if not gold:
+            completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+            prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+        else:
+            completion_ids, completion_mask = inputs["gold_completion_ids"], inputs["gold_completion_mask"]
+            prompt_ids, prompt_mask = (
+                inputs["prompt_ids"][: len(completion_ids)],
+                inputs["prompt_mask"][: len(completion_mask)],
+            )
+        input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
+        attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
+        logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
+        per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep)
+        completion_logps = (per_token_logps * attention_mask[:, -logits_to_keep:]).sum(dim=1) / attention_mask[
+            :, -logits_to_keep:
+        ].sum(dim=1)
+        return completion_logps
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        loss = None
+
+        if self.nll_weight > 0:
+            # Use the gold completion logp for NLL
+            completion_logps = self._get_completion_logps(model, inputs, gold=True)[0]
+            nll_loss = self.nll_weight * -completion_logps
+            if loss is None or loss == 0:
+                loss = nll_loss
+            else:
+                loss += nll_loss
+            self._metrics["train"]["nll_loss"].append(nll_loss.item())
+
+        if self.pro_loss_weight > 0:
+            completion_logps = self._get_completion_logps(model, inputs)
+            sorted_order = torch.argsort(inputs["advantages"], descending=True)
+            sorted_completion_logps = completion_logps[sorted_order]
+            if len(sorted_completion_logps.size()) == 1:
+                sorted_completion_logps = sorted_completion_logps.unsqueeze(0)
+
+            ignore_idx = None
+            if self.pro_loss_only_positive:
+                try:
+                    # Get the first negative advantage in the sorted order
+                    first_zero_or_negative = torch.where(inputs["advantages"][sorted_order] <= 0)[0][0].item()
+                    ignore_idx = first_zero_or_negative + 1
+                except:
+                    print("No negative advantage found, using all completions for PRO loss")
+                    pass
+
+            _pro_loss = self.pro_loss_weight * arc_utils.pro_loss(
+                sorted_completion_logps, start_neg_idx_to_ignore=ignore_idx
+            )
+            if loss is None or loss == 0:
+                loss = _pro_loss
+            else:
+                loss += _pro_loss
+            self._metrics["train"]["pro_loss"].append(_pro_loss.item())
+
+        if self.grpo_weight > 0:
+            grpo_loss = self.grpo_weight * hf_grpo_clone.compute_loss(
+                self, model, inputs, return_outputs, num_items_in_batch
+            )
+            if loss is None or loss == 0:
+                loss = grpo_loss
+            else:
+                loss += grpo_loss
+            self._metrics["train"]["grpo_loss"].append(grpo_loss.item())
+
+        self.progress_callback.loss = np.round(loss.item(), 4)
+
+        assert loss is not None, "At least one of the losses should be computed"
+        return loss
