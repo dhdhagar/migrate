@@ -179,7 +179,8 @@ def get_arc_datasets(
                 tokenizer(maybe_apply_chat_template({"prompt": x["prompt"]}, tokenizer)['prompt'])[
                     "input_ids"]) <= max_seq_len]
         training_dataset += dataset
-    random.shuffle(training_dataset)
+    # Reverse the order so that the longest prompts are first
+    training_dataset = training_dataset[::-1]
 
     # Multiply the dataset until it's longer than the minimum length
     print("Training dataset size:", len(training_dataset))
@@ -187,10 +188,9 @@ def get_arc_datasets(
         training_dataset = training_dataset * ((minimum_training_size // len(training_dataset)) + 1)
         print("Extending training dataset to:", len(training_dataset))
     if len(training_dataset) > maximum_training_size:
-        # Sort by prompt length
-        training_dataset = sorted(training_dataset, key=lambda x: len(x["prompt"]))
-        training_dataset = training_dataset[-maximum_training_size:]
+        training_dataset = training_dataset[:maximum_training_size]
         print("Clipping training dataset size to:", len(training_dataset))
+    random.shuffle(training_dataset)
 
     # Create validation prompts
     validation_input = str(np.array(validation_example["input"]))
