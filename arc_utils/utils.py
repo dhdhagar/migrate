@@ -54,16 +54,19 @@ class GridConverter:
 
     def decode(self, encoded_str: str) -> np.ndarray:
         if self.use_barc_format:
-            # input_header = "Input:\n"
-            # output_header = "\nOutput:\n"
-            # encoded_str = encoded_str.replace(input_header, "").replace(output_header, "").strip()
-            if "```" in encoded_str:
-                parsed_encoded_str = encoded_str.split("```")[1].strip()
-                grid = parsed_encoded_str.split("\n")
-                grid = [row.split() for row in grid if row.strip()]
-                grid = [[color_to_number(cell) for cell in row] for row in grid]
-                return np.array(grid)
-            else:
+            try:
+                # input_header = "Input:\n"
+                # output_header = "\nOutput:\n"
+                # encoded_str = encoded_str.replace(input_header, "").replace(output_header, "").strip()
+                if "```" in encoded_str:
+                    parsed_encoded_str = encoded_str.split("```")[1].strip()
+                    grid = parsed_encoded_str.split("\n")
+                    grid = [row.split() for row in grid if row.strip()]
+                    grid = [[color_to_number(cell) for cell in row] for row in grid]
+                    return np.array(grid)
+                else:
+                    return np.array([[]])
+            except:
                 return np.array([[]])
         else:
             return parse_response(encoded_str)
