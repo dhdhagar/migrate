@@ -322,7 +322,7 @@ def main(params):
     results = {}
     gridConverter = GridConverter(params["use_barc_format"])
     for completion in completions:
-        parsed_completion = parse_response(completion)
+        parsed_completion = gridConverter.decode(completion)
         parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
         # Get black-box score if completion is valid otherwise 0
         score = trainer.get_bb_score(solution, parsed_completion) if isinstance(parsed_completion, np.ndarray) else 0
