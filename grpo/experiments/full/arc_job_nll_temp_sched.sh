@@ -5,7 +5,7 @@
 #SBATCH -p gpu-preempt
 #SBATCH -G 1
 #SBATCH --constraint=[a40|l40s|a100]
-#SBATCH --time 8:00:00
+#SBATCH --time 24:00:00
 #SBATCH -A pi_mccallum_umass_edu
 #SBATCH -o logs/slurm-Eval--%j.out
 #SBATCH -e logs/slurm-Eval--%j.err
