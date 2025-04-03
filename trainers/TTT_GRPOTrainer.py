@@ -337,6 +337,9 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
         # Update training bar
         self.progress_callback.val_acc = np.round(sorted_majority[0][1]["score"], 4)
+        wandb.log({"validation/majority_reward": sorted_majority[0][1]["score"]})
+        wandb.log({"validation/majority_count": sorted_majority[0][1]["count"]})
+        wandb.log({"validation/total_count": len(completions)})
         print("VALIDATION SOLUTION", self.validation_dataset["solution"])
         print("VALIDATION ATTEMPT", sorted_majority[0][0])
         print("VALIDATION SCORE", sorted_majority[0][1]["score"])
