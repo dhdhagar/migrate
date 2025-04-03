@@ -134,6 +134,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         self.pro_loss_only_positive = pro_loss_only_positive
         self.use_early_stopping = use_early_stopping
 
+        self.use_barc_format = use_barc_format
         self.gridConverter = arc_utils.GridConverter(use_barc_format)
 
         for callback in self.callback_handler.callbacks:
@@ -492,7 +493,19 @@ class TTT_GRPOTrainer(GRPOTrainer):
         for completion in completions:
             guesses = [self.gridConverter.decode(completion)]
             bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
-            responses.append([completion if x.size == 0 else str(x) for x in guesses])
+            if self.use_barc_format:
+                responses.append(
+                    [
+                        (
+                            completion
+                            if x.size == 0
+                            else f"The output grid for the test input grid is:\n\n```\n{self.gridConverter.encode(x)}\n```"
+                        )
+                        for x in guesses
+                    ]
+                )
+            else:
+                responses.append([completion if x.size == 0 else self.gridConverter.encode(x) for x in guesses])
 
         # Sort by rewards
         completions, bb_scores, responses = zip(
@@ -506,7 +519,13 @@ class TTT_GRPOTrainer(GRPOTrainer):
         rewards = list(itertools.chain.from_iterable(bb_scores))
         if self.strategy == "gold":
             # Substitute in the gold/oracle solution
-            gold_solution = (str(self.arc_sol), 1.0)
+            if self.use_barc_format:
+                gold_solution = (
+                    f"The output grid for the test input grid is:\n\n```\n{self.gridConverter.encode(self.arc_sol)}\n```",
+                    1.0,
+                )
+            else:
+                gold_solution = (self.gridConverter.encode(self.arc_sol), 1.0)
 
             if self.neighborhood_sampling:
                 completions, rewards = self.run_neighborhood_sampling(
@@ -519,6 +538,11 @@ class TTT_GRPOTrainer(GRPOTrainer):
             best_guess = None
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
+                if self.use_barc_format:
+                    best_guess = (
+                        f"The output grid for the test input grid is:\n\n```\n{self.gridConverter.encode(best_guess[0])}\n```",
+                        best_guess[1],
+                    )
 
             if self.neighborhood_sampling:
                 completions, rewards = self.run_neighborhood_sampling(
