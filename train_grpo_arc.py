@@ -231,8 +231,8 @@ def main(params):
         use_barc_format=params["use_barc_format"],
     )
 
+    start_time = time.time()
     if not params["only_inference"]:
-        start_time = time.time()
 
         trainer.train()
         wandb.config.update(params)
