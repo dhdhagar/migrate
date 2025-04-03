@@ -155,66 +155,92 @@ class TTT_GRPOTrainer(GRPOTrainer):
         self.arc_past_guesses[self.arc_leave_out] = self.past_guesses.copy()
 
     # Neighborhood sampling
-    # TODO: Add support for ARC
-    # def sample_related_completions(self, chosen_completion, n):
-    def sample_arc_related_completions(self, context, solution):
+    def run_neighborhood_sampling(self, completions, rewards, target_solution, n_neighbors):
+        if target_solution is None:
+            # Set as the best current completion
+            target_solution = completions[np.argmax(rewards)]
+        neigh_samples, neigh_scores = self.get_neighborhood_samples(self.arc_prob, target_solution, n_neighbors)
+        with open(self.logfile, "r") as fh:
+            logdata = json.load(fh)
+        if "neighborhood_samples" not in logdata:
+            logdata["neighborhood_samples"] = {}
+        # Add zipped list of samples, scores
+        logdata["neighborhood_samples"][f"iteration_{self.iteration}"] = list(zip(neigh_samples, neigh_scores))
+        with open(self.logfile, "w") as fh:
+            fh.write(json.dumps(logdata, indent=2))
 
-        prompt = {"prompt": prompts_getter.get_arc_related_prompt(context, solution)}
-        prompt_text = [maybe_apply_chat_template(prompt, self.processing_class)["prompt"]]
+        if self.neighborhood_sampling_strategy == "best":
+            # Add neighbors to online samples and keep the best ones
+            n_batch = len(completions)
+            completions.extend(neigh_samples)
+            rewards.extend(neigh_scores)
+            # Sort by reward and keep the best ones
+            completions, rewards = zip(*sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True)[:n_batch])
+            completions, rewards = list(completions), list(rewards)
+
+        elif self.neighborhood_sampling_strategy == "mix":
+            # Add half of the neighbors to half of the online samples
+            n_batch = len(completions)
+            _completions = completions[: n_batch // 2]
+            _rewards = rewards[: n_batch // 2]
+            _completions.extend(neigh_samples[: n_batch // 2])
+            _rewards.extend(neigh_scores[: n_batch // 2])
+            # If length of _completions is less than n_batch, add online samples
+            if len(_completions) < n_batch:
+                _completions.extend(completions[n_batch // 2 :])
+                _rewards.extend(rewards[n_batch // 2 :])
+            completions, rewards = _completions[:n_batch], _rewards[:n_batch]
+
+        return completions, rewards
+
+    def get_neighborhood_samples(self, problem, solution, n_samples, unique=True):
+        # Sample from the base model
+        prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))
+        prompts_text = [maybe_apply_chat_template({"prompt": prompt_obj}, self.processing_class)["prompt"]] * n_samples
         prompt_inputs = self.processing_class(
-            prompt_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
+            prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
         )
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
-        # inputs = super()._prepare_inputs(prompt_inputs)
-
-        with unwrap_model_for_generation(self.model_wrapped, self.accelerator) as unwrapped_model:
-            completion_ids = unwrapped_model.generate(
-                input_ids=prompt_ids.to(self.args.device),
-                attention_mask=prompt_mask.to(self.args.device),
-                generation_config=self.generation_config,
-                num_return_sequences=5,
-                **self.generation_args,
+        if self.max_prompt_length is not None:
+            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+        completions = []
+        for i in range(0, len(prompt_ids), self.inf_batch_size):
+            _prompt_ids, _prompt_mask = (
+                prompt_ids[i : i + self.inf_batch_size],
+                prompt_mask[i : i + self.inf_batch_size],
             )
+            with self.accelerator.unwrap_model(self.model).disable_adapter():
+                completion_ids = self.model.generate(
+                    input_ids=_prompt_ids.to(self.args.device),
+                    attention_mask=_prompt_mask.to(self.args.device),
+                    generation_config=self.generation_config,
+                    temperature=self.temperature,
+                    max_new_tokens=self.max_completion_length,
+                    **self.generation_args,
+                )
+                prompt_length = _prompt_ids.size(1)
+                completions.extend(
+                    self.processing_class.batch_decode(completion_ids[:, prompt_length:], skip_special_tokens=True)
+                )
 
-        related_completions = self.processing_class.batch_decode(
-            completion_ids[:, prompt_ids.size(1) :], skip_special_tokens=True
-        )
+        if unique:
+            completions = list(set(completions))
 
-        responses = []
-        scores = []
-        for completion in related_completions:
-            guess = arc_utils.parse_response(completion)
-            scores.append(self.get_bb_score(self.arc_sol, guess))
-            responses.append(completion if guess.size == 0 else str(guess))
+        bb_scores, responses = [], []
+        for completion in completions:
+            guesses = [arc_utils.parse_response(completion)]
+            bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
+            responses.append([completion if x.size == 0 else str(x) for x in guesses])
 
-        return responses, scores
+        completions = list(itertools.chain.from_iterable(responses))
+        rewards = list(itertools.chain.from_iterable(bb_scores))
 
-    def sample_related_completions(self, chosen_completion, n):
-        inputs = {"prompt": prompts_getter.get_semantle_related_prompt(n, str(chosen_completion))}
-        inputs = [maybe_apply_chat_template(inputs, self.processing_class)["prompt"]]
-        prompt_inputs = self.processing_class(
-            inputs, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
-        )
-        inputs = super()._prepare_inputs(prompt_inputs)
+        # Zip and sort completions and rewards
+        completions, rewards = zip(*sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True))
+        completions, rewards = list(completions), list(rewards)
 
-        prompt_ids = inputs["input_ids"]
-        prompt_mask = inputs["attention_mask"]
-        with unwrap_model_for_generation(self.model_wrapped, self.accelerator) as unwrapped_model:
-            completion_ids = unwrapped_model.generate(
-                input_ids=prompt_ids,
-                attention_mask=prompt_mask,
-                generation_config=self.generation_config,
-                **self.generation_args,
-            )
-
-        related_completions = self.processing_class.decode(
-            completion_ids[0, prompt_ids.size(1) :], skip_special_tokens=True
-        )
-        try:
-            related_completions = json.loads(related_completions)["response"]
-            return related_completions
-        except Exception as _:
-            return None
+        return completions, rewards
 
     def run_validation(self):
         print("\n==================\nRUNNING VALIDATION\n==================")
