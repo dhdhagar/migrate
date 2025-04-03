@@ -101,6 +101,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         neighborhood_sampling=False,
         neighborhood_sampling_strategy="best",
         n_neighbors=10,
+        use_barc_format=False,
         *args,
         **kwargs,
     ):
@@ -132,6 +133,8 @@ class TTT_GRPOTrainer(GRPOTrainer):
         self.inject_best_at_lowest_score = inject_best_at_lowest_score
         self.pro_loss_only_positive = pro_loss_only_positive
         self.use_early_stopping = use_early_stopping
+
+        self.gridConverter = arc_utils.GridConverter(use_barc_format)
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -229,7 +232,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
         bb_scores, responses = [], []
         for completion in completions:
-            guesses = [arc_utils.parse_response(completion)]
+            guesses = [self.gridConverter.decode(completion)]
             bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
             responses.append([completion if x.size == 0 else str(x) for x in guesses])
 
@@ -313,7 +316,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         # Aggregate results
         results = {}
         for completion in completions:
-            parsed_completion = arc_utils.parse_response(completion)
+            parsed_completion = self.gridConverter.decode(completion)
             parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
             # Get black-box score if completion is valid otherwise 0
             score = (
@@ -484,7 +487,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
                     )
 
         for completion in completions:
-            guesses = [arc_utils.parse_response(completion)]
+            guesses = [self.gridConverter.decode(completion)]
             bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
             responses.append([completion if x.size == 0 else str(x) for x in guesses])
 

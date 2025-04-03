@@ -4,6 +4,71 @@ import glob
 import json
 
 
+def color_to_number(color):
+    mapping = {
+        "BLACK": 0,
+        "BLUE": 1,
+        "RED": 2,
+        "GREEN": 3,
+        "YELLOW": 4,
+        "GREY": 5,
+        "GRAY": 5,  # Alternative spelling
+        "PINK": 6,
+        "ORANGE": 7,
+        "PURPLE": 8,
+        "BROWN": 9,
+    }
+    n = mapping.get(color.upper(), -1)
+    assert n != -1, f"Color {color} not found in mapping"
+    return n
+
+
+class GridConverter:
+    color_map = {
+        0: "Black",
+        1: "Blue",
+        2: "Red",
+        3: "Green",
+        4: "Yellow",
+        5: "Gray",
+        6: "Pink",
+        7: "Orange",
+        8: "Purple",
+        9: "Brown",
+    }
+
+    def __init__(self, use_barc_format):
+        self.inv_map = {v: k for k, v in self.color_map.items()}
+        self.use_barc_format = use_barc_format
+
+    def encode(self, grid: np.ndarray) -> str:
+        if self.use_barc_format:
+            output = ""
+            for i in range(grid.shape[0]):
+                for j in range(grid.shape[1]):
+                    output += self.color_map[grid[i][j]] + " "
+                output = output[:-1] + "\n"
+            return output[:-1]
+        else:
+            return str(grid)
+
+    def decode(self, encoded_str: str) -> np.ndarray:
+        if self.use_barc_format:
+            # input_header = "Input:\n"
+            # output_header = "\nOutput:\n"
+            # encoded_str = encoded_str.replace(input_header, "").replace(output_header, "").strip()
+            if "```" in encoded_str:
+                parsed_encoded_str = encoded_str.split("```")[1].strip()
+                grid = parsed_encoded_str.split("\n")
+                grid = [row.split() for row in grid if row.strip()]
+                grid = [[color_to_number(cell) for cell in row] for row in grid]
+                return np.array(grid)
+            else:
+                return np.array([[]])
+        else:
+            return parse_response(encoded_str)
+
+
 def parse_response(output: str) -> np.ndarray:
     """
     Parses a LLM string response for an ARC grid.

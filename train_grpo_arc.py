@@ -10,7 +10,7 @@ import json
 import torch
 from trl import GRPOConfig, maybe_apply_chat_template
 
-from arc_utils.utils import parse_response
+from arc_utils.utils import parse_response, GridConverter
 
 # from GRPOTrainer import GRPOTrainer
 from trainers.TTT_GRPOTrainer import TTT_GRPOTrainer, CustomProgressCallback
@@ -91,6 +91,9 @@ def parse_arguments():
     parser.add_argument("--inject_best_at_lowest_score", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use_early_stopping", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--max_seq_len", type=int, default=2048)
+
+    parser.add_argument("--use_barc_format", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--use_induction", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
     return args
 
@@ -225,6 +228,7 @@ def main(params):
         neighborhood_sampling_strategy=params["neighborhood_sampling_strategy"],
         n_neighbors=params["n_neighbors"],
         callbacks=[CustomProgressCallback()],
+        use_barc_format=params["use_barc_format"],
     )
 
     if not params["only_inference"]:
@@ -316,6 +320,7 @@ def main(params):
 
     # Aggregate results
     results = {}
+    gridConverter = GridConverter(params["use_barc_format"])
     for completion in completions:
         parsed_completion = parse_response(completion)
         parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
