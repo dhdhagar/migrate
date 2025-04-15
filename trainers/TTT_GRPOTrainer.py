@@ -411,8 +411,10 @@ class TTT_GRPOTrainer(GRPOTrainer):
         prompts = [x["prompt"] for x in inputs]
 
         self.arc_leave_out = str(inputs[0]["solution"])
-        self.arc_prob = np.array(inputs[0]["problem"])
-        self.arc_sol = np.array(inputs[0]["solution"])
+        # self.arc_prob = np.array(inputs[0]["problem"])
+        # self.arc_sol = np.array(inputs[0]["solution"])
+        self.arc_prob = inputs[0]["problem"]
+        self.arc_sol = inputs[0]["solution"]
 
         # Load/initialize past guesses according to leave-out
         if self.arc_leave_out in self.arc_past_guesses:
@@ -497,19 +499,34 @@ class TTT_GRPOTrainer(GRPOTrainer):
                     )
 
         for completion in completions:
-            guesses = [self.gridConverter.decode(completion)]
-            bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
-            if self.use_barc_format:
-                responses.append(
-                    [
-                        (
-                            completion
-                            if x.size == 0
-                            else f"The output grid for the test input grid is:\n\n```\n{self.gridConverter.encode(x)}\n```"
-                        )
-                        for x in guesses
-                    ]
+            if self.use_induction:
+                train_problems = [np.array(x["problem"][0]) for x in inputs]
+                train_solutions = [np.array(x["solution"][0]) for x in inputs]
+                guesses = [self.gridConverter.decode(completion, input_grid=problem) for problem in train_problems]
+                # Record average score over all training inputs
+                bb_scores.append(
+                    [np.mean([self.get_bb_score(solution, guess) for guess, solution in zip(guesses, train_solutions)])]
                 )
+            else:
+                guesses = [self.gridConverter.decode(completion)]
+                bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
+            if self.use_barc_format:
+                # BARC-Induction
+                if self.use_induction:
+                    completion_prefix = """Let's solve this puzzle using Python code with the common library functions. \
+We'll first reason about the problem and then write the code to solve it. The `transform` function will take the input \
+grid and return the output grid. Here is the Python code with the comments describing how to solve the problem:"""
+                    completion = completion_prefix + f"\n```{completion.split('```')[1]}```"
+                    responses.append([completion])
+                # BARC-Transduction
+                else:
+                    responses.append(
+                        [
+                            (completion if x.size == 0 else self.gridConverter.encode(x, include_prefix=True))
+                            for x in guesses
+                        ]
+                    )
+            # TTT-Transduction
             else:
                 responses.append([completion if x.size == 0 else self.gridConverter.encode(x) for x in guesses])
 
@@ -526,10 +543,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         if self.strategy == "gold":
             # Substitute in the gold/oracle solution
             if self.use_barc_format:
-                gold_solution = (
-                    f"The output grid for the test input grid is:\n\n```\n{self.gridConverter.encode(self.arc_sol)}\n```",
-                    1.0,
-                )
+                gold_solution = (self.gridConverter.encode(self.arc_sol, include_prefix=True), 1.0)
             else:
                 gold_solution = (self.gridConverter.encode(self.arc_sol), 1.0)
 
@@ -544,17 +558,12 @@ class TTT_GRPOTrainer(GRPOTrainer):
             best_guess = None
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
-                if self.use_barc_format:
-                    best_guess = (
-                        f"The output grid for the test input grid is:\n\n```\n{self.gridConverter.encode(best_guess[0])}\n```",
-                        best_guess[1],
-                    )
+                best_guess = (self.gridConverter.encode(best_guess[0], include_prefix=True), best_guess[1])
 
             if self.neighborhood_sampling:
                 completions, rewards = self.run_neighborhood_sampling(
                     completions, rewards, best_guess[0], n_neighbors=self.n_neighbors
                 )
-
             self._add_to_batch(best_guess, completions, rewards)
         elif self.strategy == "top_delta":
             raise NotImplementedError
@@ -600,6 +609,11 @@ class TTT_GRPOTrainer(GRPOTrainer):
             },
             self.logfile,
         )
+
+        # Early stopping for Induction
+        if self.use_induction and max_reward_minus_replacement == 1:
+            self.control.should_training_stop = True
+            print("EARLY STOPPING: Found a program that solved all the training examples.")
 
         # Create final completions for computing loss
         prompt = {"prompt": prompts[0]}
