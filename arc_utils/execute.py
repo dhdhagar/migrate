@@ -11,7 +11,7 @@ with open("arc_utils/common.py", "r") as f:
     COMMON_LIBRARY_CODE = f.read()
 
 
-def execute_transformation(source, input_grid, timeout=1, function_name="main"):
+def execute_transformation(source, input_grid, timeout=1, function_name="main", verbose=False):
 
     input_grid = np.array(input_grid)
 
@@ -63,13 +63,15 @@ output_grid = {function_name}(input_grid)
         else:
             output = func_timeout(timeout, execute_code, args=(code, "output_grid", global_vars))
     except FunctionTimedOut:
-        print("Error: Code execution timed out after 10 seconds")
+        if verbose:
+            print("Error: Code execution timed out after 10 seconds")
         output = "timeout"
     except Exception as e:
         import traceback
 
-        print("Error in executing code")
-        print(f"Traceback: {traceback.format_exc()}")
+        if verbose:
+            print("Error in executing code")
+            print(f"Traceback: {traceback.format_exc()}")
         output = f"error: {e}"
     try:
         if isinstance(output, np.ndarray) and len(output.shape) == 2 and np.all((0 <= output) & (output <= 9)):
