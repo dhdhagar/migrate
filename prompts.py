@@ -107,28 +107,38 @@ class ARC_Induction(ARC_Prompts):
     def __init__(self, use_barc_format):
         super().__init__(use_barc_format)
 
-        # Prompts for BARC
         if self.use_barc_format:
-            self.system_prompt_w_context = """You are a world-class puzzle solver with exceptional pattern recognition skills. \
-Your task is to analyze puzzles, spot patterns, and provide direct solutions."""
-            self.user_prompt_w_context = """Given input-output grid pairs as reference examples, carefully observe the patterns to predict \
+            # Prompts for BARC
+            self._initialize_barc_prompts()
+        else:
+            # Prompts for TTT (None since a TTT induction model does not exist)
+            self._initialize_ttt_prompts()
+
+    def _initialize_barc_prompts(self):
+        self.system_prompt_w_context = """You are a world-class puzzle solver with exceptional pattern recognition skills and \
+expertise in Python programming. Your task is to analyze puzzle and provide Python solutions."""
+        self.system_prompt = "You are a world-class puzzle solver with exceptional pattern recognition skills and \
+expertise in Python programming. Your task is to provide Python solutions."
+        self.user_prompt_w_context = """Given input-output grid pairs as reference examples, carefully observe the patterns to predict \
 the output grid for new test input. Each pair follows the same transformation rule. Grids are 2D arrays represented as strings, \
 with cells (colors) separated by spaces and rows by newlines. Here are the input and output grids for the reference examples:\n%s
-Here is the input grid for the test example:\nInput:\n%s\n\nWrite a Python function ‘transform‘ that can convert any given input grid to
-its corresponding output grid based on the pattern observed in the reference examples"""
-            # TODO: Rewrite prompt for no context case if necessary
-            self.user_prompt = """Grids are 2D arrays represented as strings, with cells (colors) separated by spaces and rows by newlines. \
-Here is the input grid for the test example:\nInput:\n%s\n\nDirectly provide the output grids corresponding to the given test input \
-grids, based on the patterns observed in the reference examples."""
-            # TODO: Write prompt for neighborhood sampling with BARC
-            self.system_prompt_for_neighbors = ""
-        # Prompts for TTT (None since a TTT induction model does not exist)
-        else:
-            self.system_prompt_w_context = ""
-            self.system_prompt = ""
-            self.system_prompt_for_neighbors = ""
+Here is the input grid for the test example:\nInput:\n%s\n\nWrite a Python function `transform` that can convert any given input grid to its \
+corresponding output grid based on the pattern observed in the reference examples."""
+        # TODO: Rewrite prompt for no context case if necessary
+        self.user_prompt = """Grids are 2D arrays represented as strings, with cells (colors) separated by spaces and rows by newlines. \
+Here is the input grid for the test example:\nInput:\n%s\n\nWrite a Python function `transform` that can convert any given input grid to its \
+corresponding output grid."""
+        # TODO: Write prompt for neighborhood sampling with BARC induction
+        self.system_prompt_for_neighbors = ""
 
-    def build_prompt(self, context_examples: List[np.ndarray], test_input: str) -> List[Dict[str, str]]:
+    def _initialize_ttt_prompts(self):
+        self.system_prompt_w_context = ""
+        self.system_prompt = ""
+        self.system_prompt_for_neighbors = ""
+
+    def build_prompt(
+        self, context_examples: List[Dict[str, str]], test_input: np.ndarray | None
+    ) -> List[Dict[str, str]]:
         if self.use_barc_format:
             context_str = ""
             for i, example in enumerate(context_examples):
@@ -138,7 +148,11 @@ grids, based on the patterns observed in the reference examples."""
 
             if len(context_examples) > 0:
                 system_prompt = self.system_prompt_w_context
-                user_prompt = self.user_prompt_w_context % (context_str, self.gridConverter.encode(test_input))
+                user_prompt = (
+                    self.user_prompt
+                    if test_input is None
+                    else self.user_prompt_w_context % (context_str, self.gridConverter.encode(test_input))
+                )
             else:
                 system_prompt = self.system_prompt
                 user_prompt = self.user_prompt % (self.gridConverter.encode(test_input))
@@ -155,11 +169,17 @@ class ARC_Transduction(ARC_Prompts):
     def __init__(self, use_barc_format):
         super().__init__(use_barc_format)
 
-        # Prompts for BARC
         if use_barc_format:
-            self.system_prompt_w_context = "You are a world-class puzzle solver with exceptional pattern recognition skills. \
+            # Prompts for BARC
+            self._initialize_barc_prompts()
+        else:
+            # Prompts for TTT
+            self._initialize_ttt_prompts()
+
+    def _initialize_barc_prompts(self):
+        self.system_prompt_w_context = "You are a world-class puzzle solver with exceptional pattern recognition skills. \
 Your task is to analyze puzzles, spot patterns, and provide direct solutions."
-            self.system_prompt = """You are a helpful chatbot with high attention to detail who is not talkative and responds only \
+        self.system_prompt = """You are a helpful chatbot with high attention to detail who is not talkative and responds only \
 with the answer and no additional conversation. There is a specific grid transformation that we want to use on all \
 input grids. Guess the transformation we want and apply it to the provided test case. 
 
@@ -167,16 +187,16 @@ Note: the output grid can be of a different shape than the input grid and the in
 Your answer must follow the same format.
 
 Now apply the transformation to the provided test case."""
-            # TODO: Write prompt for neighborhood sampling with BARC
-            self.system_prompt_for_neighbors = ""
-            self.user_prompt = """Given input-output grid pairs as reference examples, carefully observe the patterns to predict the output grid \
+        self.user_prompt = """Given input-output grid pairs as reference examples, carefully observe the patterns to predict the output grid \
 for new test input. Each pair follows the same transformation rule. Grids are 2D arrays represented as strings, with cells (colors) \
 separated by spaces and rows by newlines.\nHere are the input and output grids for the reference examples:\n%sHere is the input \
 grid for the test example:\nInput:\n%s\n\n\nDirectly provide the output grids corresponding to the given test input grids, based on \
 the patterns observed in the reference examples."""
-        # Prompts for TTT
-        else:
-            self.system_prompt_w_context = """You are a helpful chatbot with high attention to detail who is not talkative and \
+        # TODO: Write prompt for neighborhood sampling with BARC
+        self.system_prompt_for_neighbors = ""
+
+    def _initialize_ttt_prompts(self):
+        self.system_prompt_w_context = """You are a helpful chatbot with high attention to detail who is not talkative and \
 responds only with the answer and no additional conversation. Figure out the underlying transformation in the \
 following examples and apply it to the test case.
 
@@ -187,7 +207,7 @@ Here are some examples using this transformation:
 %s
 
 Now apply the transformation to the provided test case."""
-            self.system_prompt = """You are a helpful chatbot with high attention to detail who is not talkative and responds only \
+        self.system_prompt = """You are a helpful chatbot with high attention to detail who is not talkative and responds only \
 with the answer and no additional conversation. There is a specific grid transformation that we want to use on all \
 input grids. Guess the transformation we want and apply it to the provided test case. 
 
@@ -195,7 +215,7 @@ Note: the output grid can be of a different shape than the input grid and the in
 Your answer must follow the same format.
 
 Now apply the transformation to the provided test case."""
-            self.system_prompt_for_neighbors = """You are a helpful chatbot with high attention to detail who is not talkative and \
+        self.system_prompt_for_neighbors = """You are a helpful chatbot with high attention to detail who is not talkative and \
 responds only with the answer and no additional conversation. There is a specific grid transformation that we want to \
 use on all input grids and we are trying to guess the output grid for a specific provided input grid.
 
@@ -204,7 +224,9 @@ Here is the input grid and my guess for the output grid:
 
 Provide a variation of my guess that could be the correct answer."""
 
-    def build_prompt(self, context_examples: List[Dict[str, str]], test_input: np.ndarray) -> List[Dict[str, str]]:
+    def build_prompt(
+        self, context_examples: List[Dict[str, str]], test_input: np.ndarray | None
+    ) -> List[Dict[str, str]]:
         if self.use_barc_format:
             context_str = ""
             for i, example in enumerate(context_examples):
@@ -240,17 +262,30 @@ def create_arc_prompts(
     use_induction=False,
 ):
     dataset = []
-    prompt_builder = ARC_Induction(use_barc_format) if use_induction else ARC_Transduction(use_barc_format)
-    # Loop over all possible context sizes
-    for i in range(len(possible_context_examples) + 1):
+    if use_induction:
+        prompt_builder = ARC_Induction(use_barc_format)
         if do_permutation:
-            context_combinations = list(itertools.permutations(possible_context_examples, i))
+            context_combinations = list(
+                itertools.permutations(possible_context_examples, len(possible_context_examples))
+            )
         else:
-            context_combinations = list(itertools.combinations(possible_context_examples, i))
-
-        # Loop over all possible contexts of size i
+            context_combinations = list(
+                itertools.combinations(possible_context_examples, len(possible_context_examples))
+            )
         for context in context_combinations:
             dataset.append(prompt_builder.build_prompt(list(context), user_input))
+    else:
+        prompt_builder = ARC_Transduction(use_barc_format)
+        # Loop over all possible context sizes
+        for i in range(len(possible_context_examples) + 1):
+            if do_permutation:
+                context_combinations = list(itertools.permutations(possible_context_examples, i))
+            else:
+                context_combinations = list(itertools.combinations(possible_context_examples, i))
+
+            # Loop over all possible contexts of size i
+            for context in context_combinations:
+                dataset.append(prompt_builder.build_prompt(list(context), user_input))
     return dataset
 
 
@@ -262,6 +297,72 @@ def get_arc_neighborhood_samples_prompt(target_input, target_output, use_barc_fo
     ]
 
 
+def get_arc_training_dataset(
+    training_examples, use_induction, use_permutations, use_barc_format, max_seq_len, tokenizer
+):
+    # Create training prompts
+    training_dataset = []
+    for i, leave_out in enumerate(training_examples):
+        leave_out_input = np.array(leave_out["input"])
+        # Use all exampels as context in the case of induction; leave out for transduction
+        possible_context_examples = training_examples[:i] + training_examples[i + 1 :]
+        dataset = create_arc_prompts(
+            possible_context_examples, leave_out_input, use_permutations, use_barc_format, use_induction
+        )
+        # Only evaluate with the leave out example in the case of transduction
+        dataset = [
+            {
+                "prompt": x,
+                "problem": [np.array(leave_out["input"])],
+                "solution": [np.array(leave_out["output"])],
+            }
+            for x in dataset
+        ]
+        # Only keep prompts that are shorter than the maximum sequence length
+        if max_seq_len is not None:
+            dataset = [
+                x
+                for x in dataset
+                if len(tokenizer(maybe_apply_chat_template({"prompt": x["prompt"]}, tokenizer)["prompt"])["input_ids"])
+                <= max_seq_len
+            ]
+        training_dataset += dataset
+    return training_dataset
+
+
+def get_arc_test_dataset(
+    data,
+    task_id,
+    use_permutations,
+    use_barc_format,
+    use_induction,
+    max_seq_len,
+    tokenizer,
+    min_test_size,
+    max_test_size,
+    data_solutions,
+):
+    all_training_examples = data[task_id]["train"]
+    test_input = np.array(data[task_id]["test"][0]["input"])
+    test_dataset = create_arc_prompts(
+        all_training_examples, test_input, use_permutations, use_barc_format, use_induction
+    )
+    # Only keep prompts that are shorter than the maximum sequence length
+    if max_seq_len is not None:
+        test_dataset = [
+            x
+            for x in test_dataset
+            if len(tokenizer(maybe_apply_chat_template({"prompt": x}, tokenizer)["prompt"])["input_ids"]) <= max_seq_len
+        ]
+    print("Test dataset size:", len(test_dataset))
+
+    test_dataset = test_dataset[-max_test_size:]
+    print("Clipping test dataset size to:", len(test_dataset))
+
+    test_dataset = {"dataset": test_dataset, "problem": test_input, "solution": np.array(data_solutions[task_id][0])}
+    return test_dataset
+
+
 def get_arc_datasets(
     task_id,
     arc_dataset_file,
@@ -269,11 +370,13 @@ def get_arc_datasets(
     min_training_size=50,
     max_training_size=80,
     max_validation_size=64,
+    min_test_size=64,
     max_test_size=64,
     use_permutations=False,
     tokenizer=None,
     max_seq_len=2048,
     use_barc_format=False,
+    use_induction=False,
 ):
     """
     Create ARC training, validation, and testing prompt datasets.
@@ -300,25 +403,39 @@ def get_arc_datasets(
 
     print("Available input-output examples", len(data[task_id]["train"]))
 
-    # Create training prompts
-    training_dataset = []
-    for i, leave_out in enumerate(training_examples):
-        leave_out_input = np.array(leave_out["input"])
-        possible_context_examples = training_examples[:i] + training_examples[i + 1 :]
-        dataset = create_arc_prompts(possible_context_examples, leave_out_input, use_permutations, use_barc_format)
-        dataset = [
-            {"prompt": x, "problem": np.array(leave_out["input"]), "solution": np.array(leave_out["output"])}
-            for x in dataset
+    if use_induction:
+        training_dataset = get_arc_test_dataset(
+            data,
+            task_id,
+            use_permutations,
+            use_barc_format,
+            use_induction,
+            max_seq_len,
+            tokenizer,
+            min_test_size,
+            max_test_size,
+            data_solutions,
+        )
+        # test_dataset = {"dataset": test_dataset, "problem": test_input, "solution": np.array(data_solutions[task_id][0])}
+        all_training_examples = data[task_id]["train"]
+        training_dataset = [
+            {
+                "prompt": x,
+                "problem": [d["input"] for d in all_training_examples],
+                "solution": [d["output"] for d in all_training_examples],
+            }
+            for x in training_dataset["dataset"]
         ]
-        # Only keep prompts that are shorter than the maximum sequence length
-        if max_seq_len is not None:
-            dataset = [
-                x
-                for x in dataset
-                if len(tokenizer(maybe_apply_chat_template({"prompt": x["prompt"]}, tokenizer)["prompt"])["input_ids"])
-                <= max_seq_len
-            ]
-        training_dataset += dataset
+        print(
+            "EXAMPLE TRAIN PROMPT:",
+            training_dataset[-1]["prompt"],
+            len(training_dataset[-1]["problem"]),
+            len(training_dataset[-1]["solution"]),
+        )
+    else:
+        training_dataset = get_arc_training_dataset(
+            training_examples, use_induction, use_permutations, use_barc_format, max_seq_len, tokenizer
+        )
 
     # Multiply the dataset until it's longer than the minimum length
     print("Training dataset size", len(training_dataset))
@@ -336,7 +453,10 @@ def get_arc_datasets(
 
     # Create validation prompts
     validation_input = np.array(validation_example["input"])
-    validation_dataset = create_arc_prompts(training_examples, validation_input, use_permutations, use_barc_format)
+    validation_dataset = create_arc_prompts(
+        training_examples, validation_input, use_permutations, use_barc_format, use_induction
+    )
+
     if len(validation_dataset) > max_validation_size:
         validation_dataset = validation_dataset[-max_validation_size:]
         print("Clipping validation dataset size to:", len(validation_dataset))
@@ -347,29 +467,18 @@ def get_arc_datasets(
     }
 
     # Create test prompts
-    all_training_examples = data[task_id]["train"]
-    leave_out_input = str(np.array(data[task_id]["test"][0]["input"]))
-    test_input = np.array(data[task_id]["test"][0]["input"])
-    test_dataset = create_arc_prompts(all_training_examples, test_input, use_permutations, use_barc_format)
-    print("EXAMPLE PROMPT:", test_dataset[-1])
-    # Only keep prompts that are shorter than the maximum sequence length
-    if max_seq_len is not None:
-        test_dataset = [
-            x
-            for x in test_dataset
-            if len(tokenizer(maybe_apply_chat_template({"prompt": x}, tokenizer)["prompt"])["input_ids"]) <= max_seq_len
-        ]
-    print("Test dataset size:", len(test_dataset))
-    if len(test_dataset) > max_test_size:
-        test_dataset = test_dataset[-max_test_size:]
-        print("Clipping test dataset size to:", len(test_dataset))
-    test_dataset = {"dataset": test_dataset, "problem": test_input, "solution": np.array(data_solutions[task_id][0])}
+    test_dataset = get_arc_test_dataset(
+        data,
+        task_id,
+        use_permutations,
+        use_barc_format,
+        use_induction,
+        max_seq_len,
+        tokenizer,
+        min_test_size,
+        max_test_size,
+        data_solutions,
+    )
+    print("EXAMPLE TEST PROMPT:", test_dataset["dataset"][-1])
 
     return training_dataset, validation_dataset, test_dataset
-
-
-def get_prompt(task, batch_size, target):
-    if task == "semantle":
-        return get_semantle_prompt(batch_size)
-    elif task == "chem":
-        return get_mol_prompt(batch_size, "KIT")
