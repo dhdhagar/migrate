@@ -2,6 +2,7 @@ import re
 import numpy as np
 import glob
 import json
+from arc_utils.execute import execute_transformation
 
 
 def color_to_number(color):
@@ -23,6 +24,33 @@ def color_to_number(color):
     return n
 
 
+def parse_code(paragraph):
+    """
+    This function extracts all Markdown code blocks from a given paragraph.
+    Args:
+        paragraph (str): The input paragraph containing the Markdown code blocks.
+    Returns:
+        list: A list of extracted code blocks.
+    """
+    # Regular expression to match Markdown code blocks
+    code_block_pattern = re.compile(r"```python(.*?)```", re.DOTALL)
+
+    # Find all code blocks in the paragraph
+    matches = code_block_pattern.findall(paragraph)
+
+    # Strip any leading/trailing whitespace from each code block
+    code_blocks = [match.strip() for match in matches]
+
+    if code_blocks:
+        return code_blocks
+
+    # assume that it does not begin with python
+    code_block_pattern = re.compile(r"```(.*?)```", re.DOTALL)
+    matches = code_block_pattern.findall(paragraph)
+    code_blocks = [match.strip() for match in matches]
+    return code_blocks
+
+
 class GridConverter:
     color_map = {
         0: "Black",
@@ -37,37 +65,48 @@ class GridConverter:
         9: "Brown",
     }
 
-    def __init__(self, use_barc_format):
+    def __init__(self, use_barc_format, use_induction=False):
         self.inv_map = {v: k for k, v in self.color_map.items()}
         self.use_barc_format = use_barc_format
+        self.use_induction = use_induction
 
-    def encode(self, grid: np.ndarray) -> str:
+    def encode(self, grid: np.ndarray, include_prefix: Bool = False) -> str:
+        # Encode numpy grid representation into expected generated output
         if self.use_barc_format:
             output = ""
             for i in range(grid.shape[0]):
                 for j in range(grid.shape[1]):
                     output += self.color_map[grid[i][j]] + " "
                 output = output[:-1] + "\n"
+            if include_prefix:
+                return f"The output grid for the test input grid is:\n\n```\n{output[:-1]}\n```"
             return output[:-1]
         else:
             return str(grid)
 
-    def decode(self, encoded_str: str) -> np.ndarray:
+    def decode(self, encoded_str: str, input_grid=None) -> np.ndarray:
+        # Decode generated outputs into numpy grid representation
         if self.use_barc_format:
-            try:
-                # input_header = "Input:\n"
-                # output_header = "\nOutput:\n"
-                # encoded_str = encoded_str.replace(input_header, "").replace(output_header, "").strip()
-                if "```" in encoded_str:
-                    parsed_encoded_str = encoded_str.split("```")[1].strip()
-                    grid = parsed_encoded_str.split("\n")
-                    grid = [row.split() for row in grid if row.strip()]
-                    grid = [[color_to_number(cell) for cell in row] for row in grid]
-                    return np.array(grid)
+            if self.use_induction:
+                parsed_codes = parse_code(encoded_str)
+                if parsed_codes:
+                    code = parsed_codes[0]
+                    grid = execute_transformation(code, input_grid, function_name="transform")
+                    return grid if isinstance(grid, np.ndarray) else np.array([[]])
                 else:
                     return np.array([[]])
-            except:
-                return np.array([[]])
+            else:
+                try:
+                    if "```" in encoded_str:
+                        parsed_encoded_str = encoded_str.split("```")[1].strip()
+                        grid = parsed_encoded_str.split("\n")
+                        grid = [row.split() for row in grid if row.strip()]
+                        grid = [[color_to_number(cell) for cell in row] for row in grid]
+                        return np.array(grid)
+                    else:
+                        return np.array([[]])
+                except:
+                    return np.array([[]])
         else:
             return parse_response(encoded_str)
 

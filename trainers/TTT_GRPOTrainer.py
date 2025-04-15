@@ -102,6 +102,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         neighborhood_sampling_strategy="best",
         n_neighbors=10,
         use_barc_format=False,
+        use_induction=False,
         *args,
         **kwargs,
     ):
@@ -135,7 +136,8 @@ class TTT_GRPOTrainer(GRPOTrainer):
         self.use_early_stopping = use_early_stopping
 
         self.use_barc_format = use_barc_format
-        self.gridConverter = arc_utils.GridConverter(use_barc_format)
+        self.use_induction = use_induction
+        self.gridConverter = arc_utils.GridConverter(use_barc_format, use_induction)
 
         for callback in self.callback_handler.callbacks:
             if type(callback) is CustomProgressCallback:
@@ -233,7 +235,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
         bb_scores, responses = [], []
         for completion in completions:
-            guesses = [self.gridConverter.decode(completion)]
+            guesses = [self.gridConverter.decode(completion, input_grid=self.arc_prob if self.use_induction else None)]
             bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
             responses.append([completion if x.size == 0 else str(x) for x in guesses])
 
@@ -317,7 +319,9 @@ class TTT_GRPOTrainer(GRPOTrainer):
         # Aggregate results
         results = {}
         for completion in completions:
-            parsed_completion = self.gridConverter.decode(completion)
+            parsed_completion = self.gridConverter.decode(
+                completion, input_grid=self.validation_dataset["problem"] if self.use_induction else None
+            )
             parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
             # Get black-box score if completion is valid otherwise 0
             score = (
@@ -369,7 +373,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         print(f"Validation results saved to {self.logfile}\n")
 
     def _prepare_inputs(self, inputs: dict[str, Union[torch.Tensor, Any]]) -> dict[str, Union[torch.Tensor, Any]]:
-        if self.iteration % self.validation_interval == 0:
+        if not self.use_induction and self.iteration % self.validation_interval == 0:
             self.run_validation()
         mode = "eval" if self.control.should_evaluate or self.control.should_training_stop else "train"
         if mode == "train":
@@ -396,6 +400,8 @@ class TTT_GRPOTrainer(GRPOTrainer):
                 self.best_idx_replaced = idx
             else:
                 self.best_idx_replaced = None
+        else:
+            self.best_idx_replaced = None
 
     def _generate_and_score_completions(
         self, inputs: dict[str, Union[torch.Tensor, Any]]
