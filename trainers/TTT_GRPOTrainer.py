@@ -562,10 +562,16 @@ class TTT_GRPOTrainer(GRPOTrainer):
                 )
 
         # Compute mean and max rewards excluding the "greedy" replacement
-        mean_reward_minus_replacement = np.mean(
-            [rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced]
-        )
-        max_reward_minus_replacement = np.max([rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced])
+        if self.best_idx_replaced is not None:
+            mean_reward_minus_replacement = np.mean(
+                [rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced]
+            )
+            max_reward_minus_replacement = np.max(
+                [rewards[i] for i in range(len(rewards)) if i != self.best_idx_replaced]
+            )
+        else:
+            mean_reward_minus_replacement = np.mean(rewards)
+            max_reward_minus_replacement = np.max(rewards)
         # Update training bar
         self.progress_callback.train_acc = np.round(mean_reward_minus_replacement, 4)
         wandb.log({"train/reward_minus_replacement_mean": mean_reward_minus_replacement})
