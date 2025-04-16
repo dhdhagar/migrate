@@ -12,16 +12,16 @@ def get_semantle_prompt(batch_size):
     return [
         {
             "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
-            "only with the answer and no additional conversation. All your responses should be in JSON format, i.e. "
-            '{key: value}, where the key is always "response" and the value can be a string, int, list, or dict, '
-            "depending on the context.",
+                       "only with the answer and no additional conversation. All your responses should be in JSON format, i.e. "
+                       '{key: value}, where the key is always "response" and the value can be a string, int, list, or dict, '
+                       "depending on the context.",
             "role": "system",
         },
         {
             "content": "Your task is to guess a hidden word from the English dictionary. Stick to proper, "
-            f"single-word English words. Now, guess exactly n={batch_size} new word(s) that could be the hidden word. Be "
-            'creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {"response": '
-            '["word1", "word2",...]})',
+                       f"single-word English words. Now, guess exactly n={batch_size} new word(s) that could be the hidden word. Be "
+                       'creative! (Note: give only a list of word(s) in the provided JSON format, e.g. {"response": '
+                       '["word1", "word2",...]})',
             "role": "user",
         },
     ]
@@ -31,16 +31,16 @@ def get_semantle_related_prompt(batch_size, chosen_completion):
     return [
         {
             "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
-            "only with the answer and no additional conversation. All your responses should be in JSON format, "
-            'i.e. {key: value}, where the key is always "response" and the value can be a string, int, list, '
-            "or dict, depending on the context.",
+                       "only with the answer and no additional conversation. All your responses should be in JSON format, "
+                       'i.e. {key: value}, where the key is always "response" and the value can be a string, int, list, '
+                       "or dict, depending on the context.",
             "role": "system",
         },
         {
             "content": "Your task is to guess words related to a word from the English dictionary. Stick to proper, "
-            f"single-word English words. Now, guess exactly n={batch_size} new word(s) that could be related to the word(s) "
-            f'"{chosen_completion}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
-            '{"response": ["word1", "word2",...]})',
+                       f"single-word English words. Now, guess exactly n={batch_size} new word(s) that could be related to the word(s) "
+                       f'"{chosen_completion}". Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. '
+                       '{"response": ["word1", "word2",...]})',
             "role": "user",
         },
     ]
@@ -78,16 +78,16 @@ def get_mol_prompt(batch_size, protein):
     return [
         {
             "content": "You are a helpful chatbot with high attention to detail who is not talkative and responds "
-            "only with the answer and no additional conversation. All your responses should be in JSON format, i.e. "
-            '{key: value}, where the key is always "response" and the value can be a string, int, list, or dict, '
-            "depending on the context.",
+                       "only with the answer and no additional conversation. All your responses should be in JSON format, i.e. "
+                       '{key: value}, where the key is always "response" and the value can be a string, int, list, or dict, '
+                       "depending on the context.",
             "role": "system",
         },
         {
             "content": f"Your task is to propose a molecule to bind to the {protein} protein with a high druglikeness and "
-            f"low docking score. Stick to proper molecules in the SMILES notation. Now, prompose exactly n={batch_size}"
-            "new molecule(s). Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. "
-            '{"response": ["SMILES1", "SMILES2",...]})',
+                       f"low docking score. Stick to proper molecules in the SMILES notation. Now, prompose exactly n={batch_size}"
+                       "new molecule(s). Be creative! (Note: give only a list of word(s) in the provided JSON format, e.g. "
+                       '{"response": ["SMILES1", "SMILES2",...]})',
             "role": "user",
         },
     ]
@@ -129,7 +129,23 @@ corresponding output grid based on the pattern observed in the reference example
 Here is the input grid for the test example:\nInput:\n%s\n\nWrite a Python function `transform` that can convert any given input grid to its \
 corresponding output grid."""
         # TODO: Write prompt for neighborhood sampling with BARC induction
-        self.system_prompt_for_neighbors = ""
+        self.system_prompt_for_neighbors = """You are a world-class puzzle solver with exceptional pattern recognition \
+skills and expertise in Python programming. Your task is to analyze puzzle and provide Python solutions.
+
+Given input-output grid pairs as reference examples, carefully observe the patterns to predict \
+the output grid for new test input. Each pair follows the same transformation rule. Grids are 2D arrays represented as \
+strings, with cells (colors) separated by spaces and rows by newlines. 
+
+Here are the input and output grids for the reference examples:
+%s
+
+The goal is to write a Python function `transform` that can convert any given input grid to its corresponding output \
+grid based on the pattern observed in the reference examples.
+
+Here is my guess for the function:
+%s
+
+Provide a variation of my guess that could be the correct answer."""
 
     def _initialize_ttt_prompts(self):
         self.system_prompt_w_context = ""
@@ -137,14 +153,14 @@ corresponding output grid."""
         self.system_prompt_for_neighbors = ""
 
     def build_prompt(
-        self, context_examples: List[Dict[str, str]], test_input: np.ndarray | None
+            self, context_examples: List[Dict[str, str]], test_input: np.ndarray | None
     ) -> List[Dict[str, str]]:
         if self.use_barc_format:
             context_str = ""
             for i, example in enumerate(context_examples):
                 input_str = self.gridConverter.encode(np.array(example["input"]))
                 output_str = self.gridConverter.encode(np.array(example["output"]))
-                context_str += f"Example {i+1}\nInput:\n{input_str}\n\nOutput:\n{output_str}\n\n\n"
+                context_str += f"Example {i + 1}\nInput:\n{input_str}\n\nOutput:\n{output_str}\n\n\n"
 
             if len(context_examples) > 0:
                 system_prompt = self.system_prompt_w_context
@@ -225,14 +241,14 @@ Here is the input grid and my guess for the output grid:
 Provide a variation of my guess that could be the correct answer."""
 
     def build_prompt(
-        self, context_examples: List[Dict[str, str]], test_input: np.ndarray | None
+            self, context_examples: List[Dict[str, str]], test_input: np.ndarray | None
     ) -> List[Dict[str, str]]:
         if self.use_barc_format:
             context_str = ""
             for i, example in enumerate(context_examples):
                 input_str = self.gridConverter.encode(np.array(example["input"]))
                 output_str = self.gridConverter.encode(np.array(example["output"]))
-                context_str += f"Example {i+1}\nInput:\n{input_str}\n\nOutput:\n{output_str}\n\n\n"
+                context_str += f"Example {i + 1}\nInput:\n{input_str}\n\nOutput:\n{output_str}\n\n\n"
 
             system_prompt = self.system_prompt_w_context if len(context_examples) > 0 else self.system_prompt
             prompt = [
@@ -255,11 +271,11 @@ Provide a variation of my guess that could be the correct answer."""
 
 
 def create_arc_prompts(
-    possible_context_examples: List[Dict[str, str]],
-    user_input: np.ndarray,
-    do_permutation=False,
-    use_barc_format=False,
-    use_induction=False,
+        possible_context_examples: List[Dict[str, str]],
+        user_input: np.ndarray,
+        do_permutation=False,
+        use_barc_format=False,
+        use_induction=False,
 ):
     dataset = []
     if use_induction:
@@ -298,14 +314,14 @@ def get_arc_neighborhood_samples_prompt(target_input, target_output, use_barc_fo
 
 
 def get_arc_training_dataset(
-    training_examples, use_induction, use_permutations, use_barc_format, max_seq_len, tokenizer
+        training_examples, use_induction, use_permutations, use_barc_format, max_seq_len, tokenizer
 ):
     # Create training prompts
     training_dataset = []
     for i, leave_out in enumerate(training_examples):
         leave_out_input = np.array(leave_out["input"])
         # Use all exampels as context in the case of induction; leave out for transduction
-        possible_context_examples = training_examples[:i] + training_examples[i + 1 :]
+        possible_context_examples = training_examples[:i] + training_examples[i + 1:]
         dataset = create_arc_prompts(
             possible_context_examples, leave_out_input, use_permutations, use_barc_format, use_induction
         )
@@ -324,23 +340,23 @@ def get_arc_training_dataset(
                 x
                 for x in dataset
                 if len(tokenizer(maybe_apply_chat_template({"prompt": x["prompt"]}, tokenizer)["prompt"])["input_ids"])
-                <= max_seq_len
+                   <= max_seq_len
             ]
         training_dataset += dataset
     return training_dataset
 
 
 def get_arc_test_dataset(
-    data,
-    task_id,
-    use_permutations,
-    use_barc_format,
-    use_induction,
-    max_seq_len,
-    tokenizer,
-    min_test_size,
-    max_test_size,
-    data_solutions,
+        data,
+        task_id,
+        use_permutations,
+        use_barc_format,
+        use_induction,
+        max_seq_len,
+        tokenizer,
+        min_test_size,
+        max_test_size,
+        data_solutions,
 ):
     all_training_examples = data[task_id]["train"]
     test_input = np.array(data[task_id]["test"][0]["input"])
@@ -364,19 +380,19 @@ def get_arc_test_dataset(
 
 
 def get_arc_datasets(
-    task_id,
-    arc_dataset_file,
-    arc_dataset_solutions_file,
-    min_training_size=50,
-    max_training_size=80,
-    max_validation_size=64,
-    min_test_size=64,
-    max_test_size=64,
-    use_permutations=False,
-    tokenizer=None,
-    max_seq_len=2048,
-    use_barc_format=False,
-    use_induction=False,
+        task_id,
+        arc_dataset_file,
+        arc_dataset_solutions_file,
+        min_training_size=50,
+        max_training_size=80,
+        max_validation_size=64,
+        min_test_size=64,
+        max_test_size=64,
+        use_permutations=False,
+        tokenizer=None,
+        max_seq_len=2048,
+        use_barc_format=False,
+        use_induction=False,
 ):
     """
     Create ARC training, validation, and testing prompt datasets.
