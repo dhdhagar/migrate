@@ -199,7 +199,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
         return completions, rewards
 
-    def get_neighborhood_samples(self, problem, solution, n_samples, unique=True):
+    def get_neighborhood_samples(self, problem, solution, n_samples, unique=True, return_programs=False):
         # Sample from the base model
         prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))
         prompts_text = [maybe_apply_chat_template({"prompt": prompt_obj}, self.processing_class)["prompt"]] * n_samples
@@ -239,9 +239,10 @@ class TTT_GRPOTrainer(GRPOTrainer):
             bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
             responses.append([completion if x.size == 0 else str(x) for x in guesses])
 
-        completions = list(itertools.chain.from_iterable(responses))
         rewards = list(itertools.chain.from_iterable(bb_scores))
 
+        if not return_programs:
+            completions = list(itertools.chain.from_iterable(responses))
         # Zip and sort completions and rewards
         completions, rewards = zip(*sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True))
         completions, rewards = list(completions), list(rewards)
