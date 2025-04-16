@@ -199,7 +199,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
         return completions, rewards
 
-    def get_neighborhood_samples(self, problem, solution, n_samples, unique=True, return_programs=False):
+    def get_neighborhood_samples(self, problem, solution, n_samples, unique=True, return_programs=False, verbose=False):
         # Sample from the base model
         prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))
         prompts_text = [maybe_apply_chat_template({"prompt": prompt_obj}, self.processing_class)["prompt"]] * n_samples
@@ -236,7 +236,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
         bb_scores, responses = [], []
         for completion in completions:
             guesses = [self.gridConverter.decode(completion, input_grid=self.arc_prob if self.use_induction else None)]
-            bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
+            bb_scores.append([self.get_bb_score(self.arc_sol, guess, verbose=verbose) for guess in guesses])
             responses.append([completion if x.size == 0 else str(x) for x in guesses])
 
         rewards = list(itertools.chain.from_iterable(bb_scores))
