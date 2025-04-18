@@ -24,7 +24,7 @@ def generate_completions(trainer, tokenizer, _model_for_inference, prompts, para
                 completion_ids = unwrapped_model.generate(
                     input_ids=prompt_ids.to(DEVICE),
                     attention_mask=prompt_mask.to(DEVICE),
-                    do_sample=params["inf_temperature"] == 0,
+                    do_sample=params["inf_temperature"] != 0,
                     temperature=params["inf_temperature"],
                     max_new_tokens=params["inf_max_new_tokens"],
                 )
