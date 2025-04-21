@@ -70,7 +70,7 @@ class GridConverter:
         self.use_barc_format = use_barc_format
         self.use_induction = use_induction
 
-    def encode(self, grid: np.ndarray, include_prefix: Bool = False) -> str:
+    def encode(self, grid: np.ndarray, include_prefix: bool = False) -> str:
         # Encode numpy grid representation into expected generated output
         if self.use_barc_format:
             output = ""
@@ -92,6 +92,8 @@ class GridConverter:
                 if parsed_codes:
                     code = parsed_codes[0]
                     grid = execute_transformation(code, input_grid, function_name="transform")
+                    # if isinstance(grid, str):
+                    #     return grid
                     return grid if isinstance(grid, np.ndarray) else np.array([[]])
                 else:
                     return np.array([[]])
