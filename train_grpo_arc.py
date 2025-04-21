@@ -9,6 +9,8 @@ import argparse
 import json
 import torch
 
+from trl import GRPOConfig
+
 # from GRPOTrainer import GRPOTrainer
 from trainers.TTT_GRPOTrainer import TTT_GRPOTrainer, CustomProgressCallback
 import prompts as prompts_getter
