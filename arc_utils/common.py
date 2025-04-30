@@ -193,7 +193,7 @@ def scale_pattern(pattern, scale_factor):
     """
     Scales the pattern by the specified factor.
     """
-    print("scale_pattern: DEPRECATED, switch to scale_sprite")
+    # print("scale_pattern: DEPRECATED, switch to scale_sprite")
     n, m = pattern.shape
     new_n, new_m = n * scale_factor, m * scale_factor
     new_pattern = np.zeros((new_n, new_m), dtype=pattern.dtype)
