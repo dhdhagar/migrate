@@ -10,8 +10,10 @@ sys.path.append(f"{CURRENT_DIR}/")
 with open("arc_utils/common.py", "r") as f:
     COMMON_LIBRARY_CODE = f.read()
 
+def wrapped_execute_transformation(args):
+    return execute_transformation(*args)
 
-def execute_transformation(source, input_grid, timeout=1, function_name="main", verbose=False):
+def execute_transformation(source, input_grid, timeout=1, function_name="main", verbose=True):
 
     input_grid = np.array(input_grid)
 
