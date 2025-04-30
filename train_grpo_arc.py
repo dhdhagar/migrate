@@ -252,10 +252,17 @@ def main(params):
 
     print("\n==================\nRUNNING ON TEST\n==================")
     if params["use_induction"]:
-        best_program = sorted(trainer.past_guesses.items(), key=lambda x: x[1], reverse=True)[0][0]
+        programs_from_training = None
+        if not params["only_inference"]:
+            programs_from_training = []
+            with open(logfile, "r") as file:
+                data = json.load(file)
+                for iteration in data['guesses']:
+                    batch = next(iter(iteration.values()))
+                    programs_from_training.extend([x[0] for x in batch])
         data.update(
             run_induction_inference(
-                trainer, tokenizer, _model_for_inference, training_dataset, test_dataset, params, best_program
+                trainer, tokenizer, _model_for_inference, training_dataset, test_dataset, params, programs_from_training
             )
         )
     else:

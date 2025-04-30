@@ -88,15 +88,18 @@ def run_transduction_inference(trainer, tokenizer, _model_for_inference, test_da
 
 
 def run_induction_inference(
-    trainer, tokenizer, _model_for_inference, training_dataset, test_dataset, params, best_program
+    trainer, tokenizer, _model_for_inference, training_dataset, test_dataset, params, programs_from_training
 ):
-    # Generate completions
-    prompts = test_dataset["dataset"]
-    prompts = prompts * (params["inf_num_samples"] // len(prompts) + 1)
-    prompts = prompts[: params["inf_num_samples"]]
-    completions = generate_completions(trainer, tokenizer, _model_for_inference, prompts, params)
-    completions.append(best_program)
-    print("BEST PROGRAM", best_program)
+    # Collect programs to evaluate
+    completions = []
+    if programs_from_training is not None:
+        completions.extend(programs_from_training)
+    if params['inf_num_samples'] > 0:
+        # Generate completions
+        prompts = test_dataset["dataset"]
+        prompts = prompts * (params["inf_num_samples"] // len(prompts) + 1)
+        prompts = prompts[: params["inf_num_samples"]]
+        completions.extend(generate_completions(trainer, tokenizer, _model_for_inference, prompts, params))
 
     # Aggregate results
     results = []
@@ -106,7 +109,6 @@ def run_induction_inference(
     for completion in completions:
         # Evaluate test example
         parsed_completion = gridConverter.decode(completion, input_grid=test_problem)
-        parsed_completion = "Error executing code" if parsed_completion.size == 0 else parsed_completion
         # Get black-box score if completion is valid otherwise 0
         test_score = (
             trainer.get_bb_score(test_solution, parsed_completion) if isinstance(parsed_completion, np.ndarray) else 0
