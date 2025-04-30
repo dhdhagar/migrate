@@ -90,7 +90,7 @@ class GridConverter:
             if self.use_induction:
                 parsed_codes = parse_code(encoded_str)
                 if parsed_codes:
-                    code = parsed_codes[0]
+                    code = parsed_codes[-1]
                     grid = execute_transformation(code, input_grid, function_name="transform")
                     # if isinstance(grid, str):
                     #     return grid
