@@ -234,14 +234,6 @@ def main(params):
         trainer.train()
         wandb.config.update(params)
         _model_for_inference = trainer.model
-
-        # Log training time
-        train_time = time.time() - start_time
-        with open(logfile, "r") as file:
-            data = json.load(file)
-            data["duration"] = train_time
-        with open(logfile, "w") as file:
-            json.dump(data, file, indent=2)
     else:
         _model_for_inference = model
         wandb.init(project="ttt-arc", id=wandb_id)
@@ -254,7 +246,7 @@ def main(params):
     train_time = time.time() - start_time
     with open(logfile, "r") as file:
         data = json.load(file)
-        data["Duration"] = train_time
+        data["duration"] = train_time
     with open(logfile, "w") as file:
         json.dump(data, file, indent=2)
 
