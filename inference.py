@@ -109,6 +109,10 @@ def run_induction_inference(
     for completion in completions:
         # Evaluate test example
         parsed_completion = gridConverter.decode(completion, input_grid=test_problem)
+        if params["use_induction"]:
+            parsed_completion = "Error executing code" if parsed_completion.size == 0 else parsed_completion
+        else:
+            parsed_completion = completion if parsed_completion.size == 0 else parsed_completion
         # Get black-box score if completion is valid otherwise 0
         test_score = (
             trainer.get_bb_score(test_solution, parsed_completion) if isinstance(parsed_completion, np.ndarray) else 0
@@ -119,7 +123,10 @@ def run_induction_inference(
         train_scores = []
         for train_problem, train_solution in zip(training_dataset[0]["problem"], training_dataset[0]["solution"]):
             train_completion = gridConverter.decode(completion, input_grid=np.array(train_problem))
-            train_completion = "Error executing code" if train_completion.size == 0 else train_completion
+            if params["use_induction"]:
+                train_completion = "Error executing code" if train_completion.size == 0 else train_completion
+            else:
+                train_completion = completion if train_completion.size == 0 else train_completion
             train_score = (
                 trainer.get_bb_score(np.array(train_solution), train_completion)
                 if isinstance(train_completion, np.ndarray)
