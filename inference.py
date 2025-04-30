@@ -183,6 +183,6 @@ def run_induction_inference(
     # Compute & log pass@1 and pass@2 results
     filtered_results = [x for x in results if x["train_score"] == 1 and x["output"] != "Error executing code"]
     if len(filtered_results) > 0:
-        data = get_majority_vote(data, results)
+        data = get_majority_vote(data, filtered_results)
 
     return data
