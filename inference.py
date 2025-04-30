@@ -133,6 +133,21 @@ def run_induction_inference(
                 else 0
             )
             train_scores.append(train_score)
+    
+        # Batch evalution (slower at smaller scale)
+        # train_completions = gridConverter.batch_decode(completion, input_grid=[np.array(x) for x in training_dataset[0]["problem"]])
+        # for train_completion, train_solution in zip(train_completions, training_dataset[0]["solution"]):
+        #     if params["use_induction"]:
+        #         train_completion = "Error executing code" if train_completion.size == 0 else train_completion
+        #     else:
+        #         train_completion = completion if train_completion.size == 0 else train_completion
+        #     train_score = (
+        #         trainer.get_bb_score(np.array(train_solution), train_completion)
+        #         if isinstance(train_completion, np.ndarray)
+        #         else 0
+        #     )
+        #     train_scores.append(train_score)
+            
 
         # Track individual programs and their scores
         results.append(
