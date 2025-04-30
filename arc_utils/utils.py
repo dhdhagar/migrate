@@ -2,8 +2,8 @@ import re
 import numpy as np
 import glob
 import json
-from arc_utils.execute import execute_transformation
-
+from arc_utils.execute import execute_transformation, wrapped_execute_transformation
+from pebble import ProcessPool, ProcessExpired
 
 def color_to_number(color):
     mapping = {
@@ -97,6 +97,53 @@ class GridConverter:
                     return grid if isinstance(grid, np.ndarray) else np.array([[]])
                 else:
                     return np.array([[]])
+            else:
+                try:
+                    if "```" in encoded_str:
+                        parsed_encoded_str = encoded_str.split("```")[1].strip()
+                        grid = parsed_encoded_str.split("\n")
+                        grid = [row.split() for row in grid if row.strip()]
+                        grid = [[color_to_number(cell) for cell in row] for row in grid]
+                        return np.array(grid)
+                    else:
+                        return np.array([[]])
+                except:
+                    return np.array([[]])
+        else:
+            return parse_response(encoded_str)
+    
+    def batch_decode(self, encoded_str, input_grid=None):
+        # Decode generated outputs into numpy grid representation
+        if self.use_barc_format:
+            if self.use_induction:
+                parsed_codes = parse_code(encoded_str)
+                if parsed_codes:
+                    code = parsed_codes[0]
+                    
+                    job_args = [(code, grid, 1, "transform", True) for i, grid in enumerate(input_grid)]
+                    
+                    ordered_results = [np.array([[]])] * len(job_args)
+                    with ProcessPool(max_workers=4) as pool:
+                        future = pool.map(wrapped_execute_transformation, job_args)
+                        iterator = future.result()
+                        while True:
+                            try:
+                                result = next(iterator)
+                                if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], int):
+                                    job_id, value = result
+                                    ordered_results[job_id] = value
+                            except StopIteration:
+                                break
+                            except TimeoutError as error:
+                                print("function took longer than %d seconds" % timeout)
+                            except ProcessExpired as error:
+                                print("%s. Exit code: %d" % (error, error.exitcode))
+                            except Exception as error:
+                                print("function raised %s" % error)
+                    
+                    return ordered_results
+                else:
+                    return [np.array([[]])] * len(encoded_str)
             else:
                 try:
                     if "```" in encoded_str:
