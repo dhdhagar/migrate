@@ -133,7 +133,6 @@ def run_induction_inference(
         )
 
     # Compute & record summary metrics
-    results = sorted(results, key=lambda x: x["test_score"], reverse=True)
     data = {
         "test_samples": results,
         "filtered_outputs": [],
@@ -146,6 +145,7 @@ def run_induction_inference(
         "true_negatives": 0,
         "false_negatives": 0,
     }
+    results = sorted(results, key=lambda x: x["test_score"], reverse=True)
 
     oracle = max(results, key=lambda x: x["test_score"])
     oracle_votes = len([x for x in results if x["output"] == oracle["output"]])
@@ -153,10 +153,10 @@ def run_induction_inference(
     test_solved = [x["test_score"] == 1 for x in results]
 
     data["oracle"] = {"output": oracle["output"], "score": oracle["test_score"], "count": oracle_votes}
-    data["true_positives"] = np.mean([int(x == 1 and y == 1) for x, y in zip(train_solved, test_solved)])
-    data["false_positives"] = np.mean([int(x == 1 and y == 0) for x, y in zip(train_solved, test_solved)])
-    data["true_negatives"] = np.mean([int(x == 0 and y == 0) for x, y in zip(train_solved, test_solved)])
-    data["false_negatives"] = np.mean([int(x == 0 and y == 1) for x, y in zip(train_solved, test_solved)])
+    data["true_positives"] = np.sum([int(x == 1 and y == 1) for x, y in zip(train_solved, test_solved)]) / np.sum(test_solved)
+    data["false_negatives"] = np.sum([int(x == 0 and y == 1) for x, y in zip(train_solved, test_solved)]) / np.sum(test_solved)
+    data["true_negatives"] = np.sum([int(x == 0 and y == 0) for x, y in zip(train_solved, test_solved)]) / (len(test_solved) - np.sum(test_solved))
+    data["false_positives"] = np.sum([int(x == 1 and y == 0) for x, y in zip(train_solved, test_solved)]) / (len(test_solved) - np.sum(test_solved))
 
     # Compute & log pass@1 and pass@2 results
     filtered_results = [x for x in results if x["train_score"] == 1 and x["output"] != "Error executing code"]
