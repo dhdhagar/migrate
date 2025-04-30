@@ -5,7 +5,7 @@ import random
 from trl import maybe_apply_chat_template
 from typing import List, Dict
 from abc import ABC, abstractmethod
-from arc_utils.utils import GridConverter
+from arc_utils.utils import GridConverter, parse_code
 
 
 def get_semantle_prompt(batch_size):
@@ -129,7 +129,22 @@ corresponding output grid based on the pattern observed in the reference example
 Here is the input grid for the test example:\nInput:\n%s\n\nWrite a Python function `transform` that can convert any given input grid to its \
 corresponding output grid."""
         # TODO: Write prompt for neighborhood sampling with BARC induction
-        self.system_prompt_for_neighbors = ""
+        self.system_prompt_for_neighbors = """You are a world-class puzzle solver with exceptional pattern recognition \
+skills and expertise in Python programming. Your task is to analyze puzzle and provide Python solutions.
+
+Given input-output grid pairs as reference examples, carefully observe the patterns to predict \
+the output grid for new test input. Each pair follows the same transformation rule. Grids are 2D arrays represented as \
+strings, with cells (colors) separated by spaces and rows by newlines. 
+
+Here are the input and output grids for the reference examples:
+%s
+
+The goal is to write a Python function `transform` that can convert any given input grid to its corresponding output \
+grid based on the pattern observed in the reference examples."""
+        self.user_prompt_for_neighbors = """Here is my guess for the function:
+%s
+
+Provide a variation of my guess that could be the correct answer."""
 
     def _initialize_ttt_prompts(self):
         self.system_prompt_w_context = ""
@@ -290,11 +305,31 @@ def create_arc_prompts(
 
 
 def get_arc_neighborhood_samples_prompt(target_input, target_output, use_barc_format=False, use_induction=False):
-    prompts = ARC_Induction(use_barc_format) if use_induction else ARC_Transduction(use_barc_format)
-    return [
-        {"content": prompts.system_prompt_for_neighbors % (target_input, target_output), "role": "system"},
-        {"content": f"{target_input} -> ", "role": "user"},
-    ]
+    if use_induction:
+        prompts = ARC_Induction(use_barc_format)
+
+        gridConverter = GridConverter(use_barc_format=True, use_induction=True)
+        context_str = ""
+        for i, (prob, sol) in enumerate(zip(target_input["problems"], target_input["solutions"])):
+            input_str = gridConverter.encode(prob)
+            output_str = gridConverter.encode(sol)
+            context_str += f"Example {i+1}\nInput:\n{input_str}\n\nOutput:\n{output_str}\n\n\n"
+
+        # print("CONTEXT", context_str)
+        # print("TARGET_OUTPUT", target_output)
+        # print("PARSED TARGET_OUTPUT", parse_code(target_output))
+        program = parse_code(target_output)[0]
+        program = f"```python\n{program}\n```"
+        return [
+            {"content": prompts.system_prompt_for_neighbors % context_str, "role": "system"},
+            {"content": prompts.user_prompt_for_neighbors % program, "role": "user"},
+        ]
+    else:
+        prompts = ARC_Transduction(use_barc_format)
+        return [
+            {"content": prompts.system_prompt_for_neighbors % (target_input, target_output), "role": "system"},
+            {"content": f"{target_input} -> ", "role": "user"},
+        ]
 
 
 def get_arc_training_dataset(
