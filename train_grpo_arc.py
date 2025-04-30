@@ -39,7 +39,6 @@ def parse_arguments():
     parser.add_argument("--strategy", type=str, default="gold")
     parser.add_argument("--date", type=str, default="")
     parser.add_argument("--neighborhood_sampling", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--neighborhood_sampling_strategy", type=str, choices=["best", "mix"], default="best")
     parser.add_argument("--n_neighbors", type=int, default=10)
     parser.add_argument("--task", type=str, default="semantle")
     parser.add_argument("--learning_rate", type=float, default=1e-5)
@@ -224,7 +223,6 @@ def main(params):
         inf_batch_size=params["inf_batch_size"],
         use_early_stopping=params["use_early_stopping"],
         neighborhood_sampling=params["neighborhood_sampling"],
-        neighborhood_sampling_strategy=params["neighborhood_sampling_strategy"],
         n_neighbors=params["n_neighbors"],
         callbacks=[CustomProgressCallback()],
         use_barc_format=params["use_barc_format"],

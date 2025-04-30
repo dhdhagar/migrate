@@ -99,7 +99,6 @@ class TTT_GRPOTrainer(GRPOTrainer):
         pro_loss_only_positive=False,
         use_early_stopping=True,
         neighborhood_sampling=False,
-        neighborhood_sampling_strategy="best",
         n_neighbors=10,
         use_barc_format=False,
         use_induction=False,
@@ -113,7 +112,6 @@ class TTT_GRPOTrainer(GRPOTrainer):
         self.past_guesses = {}
         self.strategy = strategy
         self.neighborhood_sampling = neighborhood_sampling
-        self.neighborhood_sampling_strategy = neighborhood_sampling_strategy
         self.n_neighbors = n_neighbors
         self.task = task
 
@@ -154,99 +152,9 @@ class TTT_GRPOTrainer(GRPOTrainer):
 
     # Record new completions and their black-box scores
     def update_past_guesses(self, responses, bb_scores):
-        guesses = list(itertools.chain.from_iterable(responses))
-        scores = list(itertools.chain.from_iterable(bb_scores))
-        for word, score in zip(guesses, scores):
+        for word, score in zip(responses, bb_scores):
             self.past_guesses[word] = score
         self.arc_past_guesses[self.arc_leave_out] = self.past_guesses.copy()
-
-    # Neighborhood sampling
-    def run_neighborhood_sampling(self, completions, rewards, target_solution, n_neighbors):
-        if target_solution is None:
-            # Set as the best current completion
-            target_solution = completions[np.argmax(rewards)]
-        neigh_samples, neigh_scores = self.get_neighborhood_samples(self.arc_prob, target_solution, n_neighbors)
-        with open(self.logfile, "r") as fh:
-            logdata = json.load(fh)
-        if "neighborhood_samples" not in logdata:
-            logdata["neighborhood_samples"] = {}
-        # Add zipped list of samples, scores
-        logdata["neighborhood_samples"][f"iteration_{self.iteration}"] = list(zip(neigh_samples, neigh_scores))
-        with open(self.logfile, "w") as fh:
-            fh.write(json.dumps(logdata, indent=2))
-
-        if self.neighborhood_sampling_strategy == "best":
-            # Add neighbors to online samples and keep the best ones
-            n_batch = len(completions)
-            completions.extend(neigh_samples)
-            rewards.extend(neigh_scores)
-            # Sort by reward and keep the best ones
-            completions, rewards = zip(*sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True)[:n_batch])
-            completions, rewards = list(completions), list(rewards)
-
-        elif self.neighborhood_sampling_strategy == "mix":
-            # Add half of the neighbors to half of the online samples
-            n_batch = len(completions)
-            _completions = completions[: n_batch // 2]
-            _rewards = rewards[: n_batch // 2]
-            _completions.extend(neigh_samples[: n_batch // 2])
-            _rewards.extend(neigh_scores[: n_batch // 2])
-            # If length of _completions is less than n_batch, add online samples
-            if len(_completions) < n_batch:
-                _completions.extend(completions[n_batch // 2 :])
-                _rewards.extend(rewards[n_batch // 2 :])
-            completions, rewards = _completions[:n_batch], _rewards[:n_batch]
-
-        return completions, rewards
-
-    def get_neighborhood_samples(self, problem, solution, n_samples, unique=True):
-        # Sample from the base model
-        prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(str(problem), str(solution))
-        prompts_text = [maybe_apply_chat_template({"prompt": prompt_obj}, self.processing_class)["prompt"]] * n_samples
-        prompt_inputs = self.processing_class(
-            prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
-        )
-        prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
-        if self.max_prompt_length is not None:
-            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
-        completions = []
-        for i in range(0, len(prompt_ids), self.inf_batch_size):
-            _prompt_ids, _prompt_mask = (
-                prompt_ids[i : i + self.inf_batch_size],
-                prompt_mask[i : i + self.inf_batch_size],
-            )
-            with self.accelerator.unwrap_model(self.model).disable_adapter():
-                completion_ids = self.model.generate(
-                    input_ids=_prompt_ids.to(self.args.device),
-                    attention_mask=_prompt_mask.to(self.args.device),
-                    generation_config=self.generation_config,
-                    temperature=self.temperature,
-                    max_new_tokens=self.max_completion_length,
-                    **self.generation_args,
-                )
-                prompt_length = _prompt_ids.size(1)
-                completions.extend(
-                    self.processing_class.batch_decode(completion_ids[:, prompt_length:], skip_special_tokens=True)
-                )
-
-        if unique:
-            completions = list(set(completions))
-
-        bb_scores, responses = [], []
-        for completion in completions:
-            guesses = [self.gridConverter.decode(completion, input_grid=self.arc_prob if self.use_induction else None)]
-            bb_scores.append([self.get_bb_score(self.arc_sol, guess) for guess in guesses])
-            responses.append([completion if x.size == 0 else str(x) for x in guesses])
-
-        completions = list(itertools.chain.from_iterable(responses))
-        rewards = list(itertools.chain.from_iterable(bb_scores))
-
-        # Zip and sort completions and rewards
-        completions, rewards = zip(*sorted(zip(completions, rewards), key=lambda x: x[1], reverse=True))
-        completions, rewards = list(completions), list(rewards)
-
-        return completions, rewards
 
     def run_validation(self):
         print("\n==================\nRUNNING VALIDATION\n==================")
@@ -329,6 +237,7 @@ class TTT_GRPOTrainer(GRPOTrainer):
                 if isinstance(parsed_completion, np.ndarray)
                 else 0
             )
+
             parsed_completion = str(parsed_completion)
             # Track completions and their scores
             results[parsed_completion] = results.get(parsed_completion, {"score": score, "count": 0})
@@ -403,13 +312,9 @@ class TTT_GRPOTrainer(GRPOTrainer):
         else:
             self.best_idx_replaced = None
 
-    def _generate_and_score_completions(
-        self, inputs: dict[str, Union[torch.Tensor, Any]]
-    ) -> dict[str, Union[torch.Tensor, Any]]:
+    def create_group_prompt_ids(self, inputs):
 
-        device = self.accelerator.device
-        prompts = [x["prompt"] for x in inputs]
-
+        # Create prompt for online samples
         self.arc_leave_out = str(inputs[0]["solution"])
         # self.arc_prob = np.array(inputs[0]["problem"])
         # self.arc_sol = np.array(inputs[0]["solution"])
@@ -424,15 +329,46 @@ class TTT_GRPOTrainer(GRPOTrainer):
             self.arc_past_guesses[self.arc_leave_out] = self.past_guesses
 
         prompts_text = [maybe_apply_chat_template(example, self.processing_class)["prompt"] for example in inputs]
+
+        # Create prompt for neighborhood samples
+        if self.neighborhood_sampling and len(self.past_guesses) > 0:
+            best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
+            solution = best_guess[0]
+
+            train_problems = [np.array(x) for x in inputs[0]["problem"]]
+            train_solutions = [np.array(x) for x in inputs[0]["solution"]]
+            problem = {"problems": train_problems, "solutions": train_solutions}
+
+            if self.use_induction:
+                prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(
+                    problem, str(solution), use_barc_format=self.use_barc_format, use_induction=self.use_induction
+                )
+            else:
+                prompt_obj = prompts_getter.get_arc_neighborhood_samples_prompt(
+                    str(problem), str(solution), use_barc_format=self.use_barc_format, use_induction=self.use_induction
+                )
+            ns_prompts = [
+                maybe_apply_chat_template({"prompt": prompt_obj}, self.processing_class)["prompt"]
+            ] * self.n_neighbors
+
+            prompts_text[-self.n_neighbors :] = ns_prompts
+
+        # Tokenize prompts
         prompt_inputs = self.processing_class(
             prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False
         )
-        # prompt_inputs = super()._prepare_inputs(prompt_inputs)
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
 
-        if self.max_prompt_length is not None:
-            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+        return prompt_ids, prompt_mask, prompts_text
+
+    def _generate_and_score_completions(
+        self, inputs: dict[str, Union[torch.Tensor, Any]]
+    ) -> dict[str, Union[torch.Tensor, Any]]:
+
+        device = self.accelerator.device
+        prompts = [x["prompt"] for x in inputs]
+
+        prompt_ids, prompt_mask, prompts_text = self.create_group_prompt_ids(inputs)
 
         responses = []
         bb_scores = []
@@ -494,14 +430,12 @@ class TTT_GRPOTrainer(GRPOTrainer):
                         **self.generation_args,
                     )
                     prompt_length = _prompt_ids.size(1)
-                    completions.extend(
-                        self.processing_class.batch_decode(completion_ids[:, prompt_length:], skip_special_tokens=True)
-                    )
+                    completions.extend(self.processing_class.batch_decode(completion_ids, skip_special_tokens=True))
 
-        for completion in completions:
+        for i, completion in enumerate(completions):
             if self.use_induction:
-                train_problems = [np.array(x["problem"][0]) for x in inputs]
-                train_solutions = [np.array(x["solution"][0]) for x in inputs]
+                train_problems = [np.array(x) for x in inputs[0]["problem"]]
+                train_solutions = [np.array(x) for x in inputs[0]["solution"]]
                 guesses = [self.gridConverter.decode(completion, input_grid=problem) for problem in train_problems]
                 # Record average score over all training inputs
                 bb_scores.append(
@@ -513,10 +447,11 @@ class TTT_GRPOTrainer(GRPOTrainer):
             if self.use_barc_format:
                 # BARC-Induction
                 if self.use_induction:
-                    completion_prefix = """Let's solve this puzzle using Python code with the common library functions. \
-We'll first reason about the problem and then write the code to solve it. The `transform` function will take the input \
-grid and return the output grid. Here is the Python code with the comments describing how to solve the problem:"""
-                    completion = completion_prefix + f"\n```{completion.split('```')[1]}```"
+                    if len(completion.split("```")) > 1:
+                        completion_prefix = """Let's solve this puzzle using Python code with the common library functions. \
+    We'll first reason about the problem and then write the code to solve it. The `transform` function will take the input \
+    grid and return the output grid. Here is the Python code with the comments describing how to solve the problem:"""
+                        completion = completion_prefix + f"\n```{completion.split('```')[1]}```"
                     responses.append([completion])
                 # BARC-Transduction
                 else:
@@ -529,6 +464,19 @@ grid and return the output grid. Here is the Python code with the comments descr
             # TTT-Transduction
             else:
                 responses.append([completion if x.size == 0 else self.gridConverter.encode(x) for x in guesses])
+
+        # Log neighborhood samples
+        if self.neighborhood_sampling and len(self.past_guesses) > 0:
+            with open(self.logfile, "r") as fh:
+                logdata = json.load(fh)
+            if "neighborhood_samples" not in logdata:
+                logdata["neighborhood_samples"] = {}
+            # Add zipped list of samples, scores
+            neigh_samples = list(itertools.chain.from_iterable(responses[-self.n_neighbors :]))
+            neigh_scores = list(itertools.chain.from_iterable(bb_scores[-self.n_neighbors :]))
+            logdata["neighborhood_samples"][f"iteration_{self.iteration}"] = list(zip(neigh_samples, neigh_scores))
+            with open(self.logfile, "w") as fh:
+                fh.write(json.dumps(logdata, indent=2))
 
         # Sort by rewards
         completions, bb_scores, responses = zip(
@@ -547,34 +495,18 @@ grid and return the output grid. Here is the Python code with the comments descr
             else:
                 gold_solution = (self.gridConverter.encode(self.arc_sol), 1.0)
 
-            if self.neighborhood_sampling:
-                completions, rewards = self.run_neighborhood_sampling(
-                    completions, rewards, gold_solution[0], n_neighbors=self.n_neighbors
-                )
-
             self._add_to_batch(gold_solution, completions, rewards)
         elif self.strategy == "greedy":
             # Substitute in the best solution generated so far
             best_guess = None
             if len(self.past_guesses) > 0:
                 best_guess = sorted(self.past_guesses.items(), key=lambda x: x[1], reverse=True)[0]
-                best_guess = (self.gridConverter.encode(best_guess[0], include_prefix=True), best_guess[1])
-
-            if self.neighborhood_sampling:
-                completions, rewards = self.run_neighborhood_sampling(
-                    completions, rewards, best_guess[0], n_neighbors=self.n_neighbors
-                )
             self._add_to_batch(best_guess, completions, rewards)
         elif self.strategy == "top_delta":
             raise NotImplementedError
         else:
             # Keep completions and rewards based on the online generated samples
             self.best_idx_replaced = None
-
-            if self.neighborhood_sampling:
-                completions, rewards = self.run_neighborhood_sampling(
-                    completions, rewards, None, n_neighbors=self.n_neighbors
-                )
 
         # Compute mean and max rewards excluding the "greedy" replacement
         if self.best_idx_replaced is not None:
@@ -594,7 +526,9 @@ grid and return the output grid. Here is the Python code with the comments descr
         wandb.log({"train/reward_minus_replacement_max": max_reward_minus_replacement})
 
         # Record guesses into history and log repsonses
-        self.update_past_guesses(responses, bb_scores)
+        self.update_past_guesses(
+            list(itertools.chain.from_iterable(responses)), list(itertools.chain.from_iterable(bb_scores))
+        )
         log_response(
             {
                 f"Iteration: {self.iteration}": [
@@ -602,6 +536,8 @@ grid and return the output grid. Here is the Python code with the comments descr
                     for x, y in zip(
                         list(itertools.chain.from_iterable(responses)),
                         list(itertools.chain.from_iterable(bb_scores)),
+                        # completions,
+                        # rewards,
                     )
                 ],
                 "problem": str(self.arc_prob),
@@ -618,7 +554,8 @@ grid and return the output grid. Here is the Python code with the comments descr
         # Create final completions for computing loss
         prompt = {"prompt": prompts[0]}
         prompt_text = [maybe_apply_chat_template(prompt, self.processing_class)["prompt"]]
-        prompt_ids = self.processing_class(prompt_text, return_tensors="pt", add_special_tokens=False).input_ids
+        prompt_inputs = self.processing_class(prompt_text, return_tensors="pt", add_special_tokens=False)
+        prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
         completion_ids = self.processing_class(
             completions, return_tensors="pt", add_special_tokens=False, padding=True
         ).input_ids
@@ -656,6 +593,7 @@ grid and return the output grid. Here is the Python code with the comments descr
 
         # Concatenate prompt_mask with completion_mask for logit computation
         prompt_mask = prompt_mask.to(device)
+        prompt_mask = prompt_mask.repeat(completion_mask.size(0), 1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
