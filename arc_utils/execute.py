@@ -72,13 +72,13 @@ output_grid = {function_name}(input_grid)
         if verbose:
             print("Error in executing code")
             print(f"Traceback: {traceback.format_exc()}")
-        output = f"error: {e}"
+        output = f"error: {traceback.format_exc()}"
     try:
         if isinstance(output, np.ndarray) and len(output.shape) == 2 and np.all((0 <= output) & (output <= 9)):
             output = output
         else:
             output = "error"
-    except:
+    except Exception as e:
         output = "error"
 
     # make sure that it is a 2d nump array of integers between 0-9
