@@ -118,7 +118,7 @@ class GridConverter:
             if self.use_induction:
                 parsed_codes = parse_code(encoded_str)
                 if parsed_codes:
-                    code = parsed_codes[0]
+                    code = parsed_codes[-1]
                     
                     job_args = [(code, grid, 1, "transform", True) for i, grid in enumerate(input_grid)]
                     
