@@ -1,29 +1,62 @@
-# Test-Time Search with GRPO
+# MiGrATe: Mixed-Policy GRPO for Adaptation at Test-Time
+![banner](figs/banner.png)
 
-## Create environment
-```
-conda create -n arc_grpo python=3.10
-conda activate arc_grpo 
+## Overview
+**MiGrAte** is a test-time adaptation framework that iteratively searches for optimal solutions in challenging domains. Given a search problem, MiGrATe iteratively searches for optimal solutions by sampling candidates and updating its policy model $\pi_\theta^t$ using mixed-policy GRPO.
+    In each iteration, we combine online samples ($\bullet$) from the current policy distribution,
+    % are generated and a 
+    top-performing past solutions ($\star$) as greedy references,
+    and samples drawn from the neighborhoods of greedy solutions ($\circ$) to form a GRPO group. 
+    The resulting group is used to update $\pi_\theta^t$ and *migrate* towards a sampling distribution that is likely to generate higher-quality solutions according to $f(\cdot)$.
+
+## Environment Setup
+```bash
+conda create -n migrate python=3.10
+conda activate migrate  
 pip install -r requirements.txt
-
-cd grpo
 ```
 
-## Instructions for running (semantle) experiments
-All experiments are in `scripts.sh` and can be ran with the following command:
-```
-sh scripts.sh
+## Running Experiments
+
+### Semantle (Word Search)
+**Run Scripts**
+```bash
+# Baselines
+python semantle_inference.py --strat "random_sample"       # Random
+python semantle_inference.py --strat "random_top3_ns"      # NS
+python semantle_inference.py --strat "opro_10k"            # OPRO
+./scripts/semantle/1_grpo.sh                               # GRPO
+./scripts/semantle/2_grpo_greedy.sh                        # GRPO-Greedy
+# MiGrAte Variants
+./scripts/semantle/3_migrate.sh                            # MiGrAte
+./scripts/semantle/4_migrate_opro.sh                       # MiGrAte (OPRO)
 ```
 
-Example of running an individual experiment
-```
-accelerate launch train_grpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --target "computer" --n_reps 1 --batch_size 10 --strategy "Online_Single"
+
+## Dockstring (Molecule Optimization)
+- Install [Open Babel](https://openbabel.org/docs/Installation/install.html)
+
+**Run Scripts**
+```bash
+# Random
+python dockstring_inference.py --strat "random_sample"
+# NS
+python dockstring_inference.py --strat "random_top3_ns"
+# OPRO
+python dockstring_inference.py --strat "opro_5k"
+# GRPO
+./scripts/dockstring/1_grpo.sh
+# GRPO-Greedy
+./scripts/dockstring/2_grpo_greedy.sh
+# MiGrAte
+./scripts/dockstring/3_migrate.sh
+# MiGrAte (OPRO)
+./scripts/dockstring/4_migrate_opro.sh
 ```
 
-## Instructions for running (ARC) experiments
-- Download the data:  
-    - Ensure you have the following installed:
-      - Python (>=3.10)
+## ARC (Abstraction and Reasoning Corpus)
+- Dataset Setup:  
+    - Ensure the following are installed:
       - Kaggle API (`kaggle` package)
     - Set up Kaggle API credentials (if not already done):
       - Go to [Kaggle](https://www.kaggle.com/).
@@ -38,62 +71,26 @@ accelerate launch train_grpo.py --model "meta-llama/Llama-3.2-1B-Instruct" --tar
     - Download the dataset:
        ```bash
        kaggle competitions download -c arc-prize-2024 -p ./kaggle/input/arc-prize-2024
-       ```
-    - Unzip the dataset:
-       ```bash
        unzip ./kaggle/input/arc-prize-2024/arc-prize-2024.zip -d ./kaggle/input/arc-prize-2024/
-       rm arc-prize-2024.zip
        ```
+       
+### ARC-Small/Full scripts
+```bash
+# ARC-Small
+./scripts/arc_small/0_random.sh           # Random
+./scripts/arc_small/1_ns.sh               # NS
+./scripts/arc_small/2_opro.sh             # OPRO
+./scripts/arc_small/3_grpo.sh             # GRPO
+./scripts/arc_small/4_grpo_greedy.sh      # GRPO-Greedy
+./scripts/arc_small/5_migrate.sh          # MiGrAte
+./scripts/arc_small/6_migrate_opro.sh     # MiGrAte (OPRO)
 
-- Load model cache:
-    ```
-    export HF_HOME="/work/pi_mccallum_umass_edu/pkphan_umass_edu/pkphan/hf_cache"
-    export HF_HUB_CACHE="/work/pi_mccallum_umass_edu/pkphan_umass_edu/pkphan/hf_cache/hub"
-    ```
-
-- Command to execute experiments:
-    ```
-    sh arc.sh
-    ```
-    or 
-    ```
-    sbatch arc_job.sh
-    ```
-
-### Arguments
-
-- `--model` -- Default: `ekinakyurek/marc-8B-finetuned-llama3`
-- `--target` -- ARC task ID
-- `--n_reps` -- Number of online samples per training step
-- `--strategy` -- One of the strategies below (use `Greedy_Single` for ARC for now)
-- `--date` -- For logging
-- `--related` -- Do neighborhood sampling
-- `--task` -- `["semantle"|"arc"]`
-- `--learning_rate` -- Default: `5e-5`
-- `--num_train_epochs` -- Default: 15
-- `--online_temperature` -- Temperature of online samples, Default: 0.9
-- `--online_max_completion_length` -- Max token of online samples, Default: 512
-- `--beta` -- KL coefficient, Default: 0.0
-- `--lora_rank` -- Default: 128
-- `--lora_alpha` -- Default: 32
-- `--lora_dropout` -- Default: 0.0
-- `--target_modules` -- Default: `["q_proj", "v_proj"]`
-- `arc_dataset_file` -- File path to `arc-agi_evaluation_challenges.json`
-- `online_temperature`
-
-
-
-## Currently Implemented Variations
-- `Oracle_Single`
-- `Online_Single`
-- `Online_Mean`
-- `Online_Max`
-- `Online_Batch_Mean`
-- `Online_Batch_Max`
-- `Greedy_Single`
-- `Greedy_Batch_Mean`
-- `Greedy_Batch_Max`
-- `TopDelta_Batch_Mean`
-- `TopDelta_Batch_Max`
-- `Greedy_Batch_Mean_Related`
-- `Greedy_Batch_Max_Related`
+# ARC-Full
+./scripts/arc_full/0_random.sh            # Random
+./scripts/arc_full/1_ns.sh                # NS
+./scripts/arc_full/2_opro.sh              # OPRO
+./scripts/arc_full/3_grpo.sh              # GRPO
+./scripts/arc_full/4_grpo_greedy.sh       # GRPO-Greedy
+./scripts/arc_full/5_migrate.sh           # MiGrAte
+./scripts/arc_full/6_migrate_opro.sh      # MiGrAte (OPRO)
+```
