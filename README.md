@@ -2,7 +2,7 @@
 ![banner](figs/banner.png)
 
 ## Overview
-**MiGrAte** is a test-time adaptation framework that iteratively searches for optimal solutions in challenging domains. Given a search problem, MiGrATe iteratively searches for optimal solutions by sampling candidates and updating its policy model $\pi_\theta^t$ using mixed-policy GRPO.
+**MiGrATe** is a test-time adaptation framework that iteratively searches for optimal solutions in challenging domains. Given a search problem, MiGrATe iteratively searches for optimal solutions by sampling candidates and updating its policy model $\pi_\theta^t$ using mixed-policy GRPO.
     In each iteration, we combine online samples ($\bullet$) from the current policy distribution,
     % are generated and a 
     top-performing past solutions ($\star$) as greedy references,
@@ -27,9 +27,10 @@ python semantle_inference.py --strat "random_top3_ns"      # NS
 python semantle_inference.py --strat "opro_10k"            # OPRO
 ./scripts/semantle/1_grpo.sh                               # GRPO
 ./scripts/semantle/2_grpo_greedy.sh                        # GRPO-Greedy
-# MiGrAte Variants
-./scripts/semantle/3_migrate.sh                            # MiGrAte
-./scripts/semantle/4_migrate_opro.sh                       # MiGrAte (OPRO)
+
+# MiGrATe Variants
+./scripts/semantle/3_migrate.sh                            # MiGrATe
+./scripts/semantle/4_migrate_opro.sh                       # MiGrATe (OPRO)
 ```
 
 
@@ -38,20 +39,16 @@ python semantle_inference.py --strat "opro_10k"            # OPRO
 
 **Run Scripts**
 ```bash
-# Random
-python dockstring_inference.py --strat "random_sample"
-# NS
-python dockstring_inference.py --strat "random_top3_ns"
-# OPRO
-python dockstring_inference.py --strat "opro_5k"
-# GRPO
-./scripts/dockstring/1_grpo.sh
-# GRPO-Greedy
-./scripts/dockstring/2_grpo_greedy.sh
-# MiGrAte
-./scripts/dockstring/3_migrate.sh
-# MiGrAte (OPRO)
-./scripts/dockstring/4_migrate_opro.sh
+# Baselines
+python dockstring_inference.py --strat "random_sample"     # Random
+python dockstring_inference.py --strat "random_top3_ns"    # NS
+python dockstring_inference.py --strat "opro_5k"           # OPRO
+./scripts/dockstring/1_grpo.sh                             # GRPO
+./scripts/dockstring/2_grpo_greedy.sh                      # GRPO-Greedy
+
+# MiGrATe variants
+./scripts/dockstring/3_migrate.sh                          # MiGrATe
+./scripts/dockstring/4_migrate_opro.sh                     # MiGrATe (OPRO)
 ```
 
 ## ARC (Abstraction and Reasoning Corpus)
@@ -76,21 +73,23 @@ python dockstring_inference.py --strat "opro_5k"
        
 ### ARC-Small/Full scripts
 ```bash
-# ARC-Small
+# ARC-Small baselines
 ./scripts/arc_small/0_random.sh           # Random
 ./scripts/arc_small/1_ns.sh               # NS
 ./scripts/arc_small/2_opro.sh             # OPRO
 ./scripts/arc_small/3_grpo.sh             # GRPO
 ./scripts/arc_small/4_grpo_greedy.sh      # GRPO-Greedy
-./scripts/arc_small/5_migrate.sh          # MiGrAte
-./scripts/arc_small/6_migrate_opro.sh     # MiGrAte (OPRO)
+# ARC-Small MiGrATe variants
+./scripts/arc_small/5_migrate.sh          # MiGrATe
+./scripts/arc_small/6_migrate_opro.sh     # MiGrATe (OPRO)
 
-# ARC-Full
+# ARC-Full baselines
 ./scripts/arc_full/0_random.sh            # Random
 ./scripts/arc_full/1_ns.sh                # NS
 ./scripts/arc_full/2_opro.sh              # OPRO
 ./scripts/arc_full/3_grpo.sh              # GRPO
 ./scripts/arc_full/4_grpo_greedy.sh       # GRPO-Greedy
-./scripts/arc_full/5_migrate.sh           # MiGrAte
-./scripts/arc_full/6_migrate_opro.sh      # MiGrAte (OPRO)
+# ARC-Full MiGrATe variants
+./scripts/arc_full/5_migrate.sh           # MiGrATe
+./scripts/arc_full/6_migrate_opro.sh      # MiGrATe (OPRO)
 ```
