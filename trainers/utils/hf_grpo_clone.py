@@ -55,7 +55,16 @@ def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=N
     per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
     if self.beta != 0.0:
         per_token_loss = per_token_loss + self.beta * per_token_kl
-    loss = (per_token_loss * completion_mask).sum() / completion_mask.sum()
+
+    if self.loss_type == "grpo":
+        loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
+    elif self.loss_type == "bnpo":
+        loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
+    elif self.loss_type == "dr_grpo":
+        loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
+    else:
+        raise ValueError(f"Unknown loss type: {self.loss_type}")
+    # loss = (per_token_loss * completion_mask).sum() / completion_mask.sum()
 
     # Log the metrics
     mode = "eval" if self.control.should_evaluate else "train"
