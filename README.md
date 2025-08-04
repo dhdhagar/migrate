@@ -31,6 +31,7 @@ python semantle_inference.py --strat "opro_10k"            # OPRO
 # MiGrATe Variants
 ./scripts/semantle/3_migrate.sh                            # MiGrATe
 ./scripts/semantle/4_migrate_opro.sh                       # MiGrATe (OPRO)
+./scripts/semantle/6_migrate_evo.sh                        # MiGrATe (Evolution)
 ```
 
 
@@ -72,6 +73,8 @@ python dockstring_inference.py --strat "opro_5k"           # OPRO
        ```
        
 ### ARC-Small/Full scripts
+
+**Run Scripts**
 ```bash
 # ARC-Small baselines
 ./scripts/arc_small/0_random.sh           # Random
