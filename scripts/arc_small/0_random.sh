@@ -10,5 +10,5 @@ read -ra targets <<<"$cleaned"
 
 for target in "${targets[@]}"; do
   # Random
-  accelerate launch train_grpo_arc.py --task "arc" --date "$current_time" --model "$model_name" --target "$target" --trl_seed 2 --strategy "ns" --num_train_epochs 1 --wandb_prefix "arc_ns" --wandb_tags "grpo,arc,ns" --min_training_size 64 --max_training_size 64 --inf_batch_size 16 --batch_size 16 --num_generations 16 --online_max_completion_length 1024 --inf_num_samples 0 --learning_rate 1e-5 --lora_alpha 32 --lora_rank 128 --greedy_topk 1 --migrate_gamma 0 --migrate_alpha 16 --migrate_beta 0 --use_induction --inf_num_samples 1024 --only_inference --inf_max_new_tokens 1024 --use_vllm
+  accelerate launch train.py --task "arc" --date "$current_time" --model "$model_name" --target "$target" --trl_seed 2 --strategy "ns" --num_train_epochs 1 --wandb_prefix "arc_ns" --wandb_tags "grpo,arc,ns" --min_training_size 64 --max_training_size 64 --inf_batch_size 16 --batch_size 16 --num_generations 16 --online_max_completion_length 1024 --inf_num_samples 0 --learning_rate 1e-5 --lora_alpha 32 --lora_rank 128 --greedy_topk 1 --migrate_gamma 0 --migrate_alpha 16 --migrate_beta 0 --use_induction --inf_num_samples 1024 --only_inference --inf_max_new_tokens 1024 --use_vllm
 done

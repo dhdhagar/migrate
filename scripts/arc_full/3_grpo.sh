@@ -8,5 +8,5 @@ model_name="barc0/Llama-3.1-ARC-Potpourri-Induction-8B"
 
 for target in "${targets[@]}"; do
   # Vanilla GRPO
-  accelerate launch train_grpo_arc.py --task "arc" --date "$current_time" --model "$model_name" --target "$target" --trl_seed 2 --strategy "grpo" --num_train_epochs 1 --wandb_prefix "arc_small_grpo_vanilla" --wandb_tags "grpo,arc_small,vanilla" --min_training_size 64 --max_training_size 64 --inf_batch_size 16 --batch_size 16 --num_generations 16 --online_max_completion_length 1024 --inf_num_samples 0 --learning_rate 1e-5 --lora_alpha 32 --lora_rank 128 --num_iterations 1 --greedy_topk 1 --migrate_gamma 0 --migrate_alpha 16 --migrate_beta 0 --use_induction
+  accelerate launch train.py --task "arc" --date "$current_time" --model "$model_name" --target "$target" --trl_seed 2 --strategy "grpo" --num_train_epochs 1 --wandb_prefix "arc_small_grpo_vanilla" --wandb_tags "grpo,arc_small,vanilla" --min_training_size 64 --max_training_size 64 --inf_batch_size 16 --batch_size 16 --num_generations 16 --online_max_completion_length 1024 --inf_num_samples 0 --learning_rate 1e-5 --lora_alpha 32 --lora_rank 128 --num_iterations 1 --greedy_topk 1 --migrate_gamma 0 --migrate_alpha 16 --migrate_beta 0 --use_induction
 done

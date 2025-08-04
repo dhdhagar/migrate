@@ -6,5 +6,5 @@ model_name="meta-llama/Llama-3.2-3B-Instruct"
 
 for target in "${targets[@]}"; do
   # Migrate
-  accelerate launch train_grpo_arc.py --task "molecule" --date "$current_time" --model "$model_name" --target "$target" --trl_seed 2 --strategy "migrate_top1" --num_train_epochs 1 --wandb_prefix "dockstring_migrate" --wandb_tags "grpo,dockstring,migrate,top1" --min_training_size 40 --max_training_size 40 --inf_batch_size 10 --num_guesses 1 --batch_size 5 --num_generations 5 --online_max_completion_length 256 --inf_num_samples 0 --learning_rate 5e-5 --lora_alpha 16 --lora_rank 64 --num_iterations 2 --migrate_sampling_strategy "random_topk" --greedy_topk 1 --migrate_gamma 2 --migrate_alpha 2 --migrate_beta 1
+  accelerate launch train.py --task "molecule" --date "$current_time" --model "$model_name" --target "$target" --trl_seed 2 --strategy "migrate_top1" --num_train_epochs 1 --wandb_prefix "dockstring_migrate" --wandb_tags "grpo,dockstring,migrate,top1" --min_training_size 40 --max_training_size 40 --inf_batch_size 10 --num_guesses 1 --batch_size 5 --num_generations 5 --online_max_completion_length 256 --inf_num_samples 0 --learning_rate 5e-5 --lora_alpha 16 --lora_rank 64 --num_iterations 2 --migrate_sampling_strategy "random_topk" --greedy_topk 1 --migrate_gamma 2 --migrate_alpha 2 --migrate_beta 1
 done
