@@ -5,114 +5,37 @@ PatchFastRL("GRPO", FastLanguageModel)
 import os
 import time
 from datetime import datetime
-import argparse
 import json
 import torch
 
 from trl import GRPOConfig
 
-# from GRPOTrainer import GRPOTrainer
 from trainers.TTT_GRPOTrainer import TTT_GRPOTrainer, CustomProgressCallback
-import prompts as prompts_getter
-from typing import List
 import wandb
 from inference import run_induction_inference, run_transduction_inference
+import numpy as np
 
-# from peft import LoraConfig
-# from transformers import (
-#     AutoModelForCausalLM,
-#     AutoTokenizer,
-#     BitsAndBytesConfig,
-# )
+from utils.arc_utils.induction_prompts import ARC_InductionPrompts
+from utils.arc_utils.arc_induction_task import ARCInductionTask
+
+from utils.semantle_utils.semantle_task import SemantleTask
+from utils.molecule_utils.molecule_task import MoleculeTask
+from arguments import parse_arguments
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def parse_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", "-m", type=str, default="meta-llama/Llama-3.2-1B-Instruct")
-    parser.add_argument("--4bit", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--target", "-t", type=str, default="computer")
-    parser.add_argument("--num_guesses", type=int, default=10)
-    parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--warmstart", type=float, default=0)
-    parser.add_argument("--strategy", type=str, default="gold")
-    parser.add_argument("--date", type=str, default="")
-    parser.add_argument("--neighborhood_sampling", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--n_neighbors", type=int, default=10)
-    parser.add_argument("--task", type=str, default="semantle")
-    parser.add_argument("--learning_rate", type=float, default=1e-5)
-    parser.add_argument("--num_train_epochs", type=int, default=15)
-    parser.add_argument("--batch_size", type=int, default=10)
-    parser.add_argument("--grad_acc_steps", type=int, default=1)
-    parser.add_argument("--num_generations", type=int, default=10)
-    parser.add_argument("--online_temperature", type=float, default=1.0)
-    parser.add_argument("--online_max_completion_length", type=int, default=512)
-    parser.add_argument("--beta", type=float, default=0.0)
-    parser.add_argument("--lora_rank", type=int, default=128)
-    parser.add_argument("--lora_alpha", type=int, default=32)
-    parser.add_argument("--lora_dropout", type=int, default=0)
-    parser.add_argument("--target_modules", type=List[str], default=["q_proj", "v_proj"])
-    parser.add_argument(
-        "--arc_dataset_file", type=str, default="kaggle/input/arc-prize-2024/arc-agi_evaluation_challenges.json"
+def create_dataset(params, task, tokenizer=None):
+    training_dataset, validation_dataset, test_dataset = task.prompts.build_dataset(
+        params["target"],
+        **{k: v for k, v in params.items() if k in task.prompts.build_dataset.__code__.co_varnames},
     )
-    parser.add_argument(
-        "--arc_dataset_solutions_file",
-        type=str,
-        default="kaggle/input/arc-prize-2024/arc-agi_evaluation_solutions.json",
-    )
-    parser.add_argument("--save_model", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--use_permutations", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--readable_prompt", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--min_training_size", type=int, default=50)
-    parser.add_argument("--max_training_size", type=int, default=80)
-    parser.add_argument("--max_validation_size", type=int, default=64)
-    parser.add_argument("--max_test_size", type=int, default=64)
-    parser.add_argument("--validation_interval", type=int, default=5)
-    parser.add_argument("--use_vllm", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--grpo_weight", type=float, default=1.0)
-    parser.add_argument("--nll_weight", type=float, default=0.0)
-    parser.add_argument("--pro_loss_weight", type=float, default=0.0)
-    parser.add_argument("--pro_loss_only_positive", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--train_temperature", type=float, default=1.0)
-    parser.add_argument("--use_train_temp_schedule", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--wandb_prefix", type=str, default=None)
-    parser.add_argument("--wandb_tags", type=str, default=None)
-    parser.add_argument("--save_datasets", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--inject_best_at_lowest_score", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--use_early_stopping", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--max_seq_len", type=int, default=2048)
-
-    parser.add_argument("--use_barc_format", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--use_induction", action=argparse.BooleanOptionalAction, default=False)
-
-    parser.add_argument("--only_inference", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--inf_batch_size", type=int, default=10)
-    parser.add_argument("--inf_temperature", type=float, default=0.8)
-    parser.add_argument("--inf_max_new_tokens", type=int, default=512)
-    parser.add_argument("--inf_num_samples", type=int, default=64)
-
-    args = parser.parse_args()
-    return args
+    return training_dataset, validation_dataset, test_dataset
 
 
-def create_dataset(params, tokenizer=None):
-    if params["task"] != "arc":
-        return [
-            {"prompt": prompts_getter.get_prompt(params["task"], params["num_guesses"], params["target"])}
-            for _ in range(params["steps"])
-        ]
-    else:
-        return prompts_getter.get_arc_datasets(
-            params["target"],
-            tokenizer=tokenizer,
-            **{k: v for k, v in params.items() if k in prompts_getter.get_arc_datasets.__code__.co_varnames},
-        )
-
-
-def setup_logging(params, validation_data, test_data):
+def setup_additional_logging(params, validation_data, test_data):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logdir = f'logs/{params["strategy"]}/{params["target"]}'
+    logdir = f'logs/{params["task"]}/{params["strategy"]}/{params["target"]}'
     os.makedirs(logdir, exist_ok=True)
     logfile = f"{logdir}/{timestamp}.log"
     wandb_id = f'{params["strategy"]}-{params["target"]}-{timestamp}'
@@ -121,12 +44,16 @@ def setup_logging(params, validation_data, test_data):
     init_data = {
         "params": params,
         "task": {
-            "validation": {"problem": str(validation_data["problem"]), "solution": str(validation_data["solution"])},
-            "test": {"problem": str(test_data["problem"]), "solution": str(test_data["solution"])},
+            "test": [{"problem": str(x["problem"]), "solution": str(x["solution"])} for x in test_data],
         },
         "guesses": [],
         "validation": [],
     }
+    if len(validation_data) > 0:
+        init_data["task"]["validaiton"] = {
+            "problem": str(validation_data["problem"]),
+            "solution": str(validation_data["solution"]),
+        }
     with open(logfile, "w") as file:
         file.write(json.dumps(init_data, indent=2))
     return init_data, logdir, logfile, wandb_id
@@ -137,8 +64,10 @@ def setup_model(params):
         params["model"],
         device_map="auto",
         max_lora_rank=params["lora_rank"],
-        gpu_memory_utilization=0.8,
+        gpu_memory_utilization=0.7,
         fast_inference=params["use_vllm"],
+        max_seq_length=8192,
+        full_finetuning=False,
         # quantization_config=quant_config,
         # torch_dtype=torch.bfloat16,
     )
@@ -151,6 +80,7 @@ def setup_model(params):
         target_modules=params["target_modules"],
         use_rslora=False,
         loftq_config=None,
+        max_seq_length=8192,
         # use_gradient_checkpointing = "unsloth"
     )
     tokenizer.pad_token = tokenizer.eos_token
@@ -164,11 +94,27 @@ def reward_len(completions, **kwargs):
 
 
 def main(params):
+    task_map = {"arc": ARCInductionTask, "semantle": SemantleTask, "molecule": MoleculeTask}
+    task_cls = task_map[params["task"]]
+    task = task_cls(**params)
+
+    # if params["task"] == "arc_induction":
+    #     task = ARCInductionTask(params["task"], params["target"], params["migrate_gamma"], None, None)
+    # elif params["task"] == "semantle":
+    #     task = SemantleTask(
+    #         params["task"], params["target"], params["migrate_gamma"], params["batch_size"], params["num_guesses"]
+    #     )
+    # elif params["task"] == "molecule":
+    #     task = MoleculeTask(
+    #         params["task"], params["target"], params["migrate_gamma"], params["batch_size"], params["num_guesses"]
+    #     )
+
     model, tokenizer = setup_model(params)
 
-    training_dataset, validation_dataset, test_dataset = create_dataset(params, tokenizer=tokenizer)
+    training_dataset, validation_dataset, test_dataset = create_dataset(params, task, tokenizer=tokenizer)
 
-    data, logdir, logfile, wandb_id = setup_logging(params, validation_dataset, test_dataset)
+    data, logdir, logfile, wandb_id = setup_additional_logging(params, validation_dataset, test_dataset)
+    wandb.init(project="ttt-arc", id=wandb_id)
 
     if params["save_datasets"]:
         os.makedirs(logdir, exist_ok=True)
@@ -187,6 +133,7 @@ def main(params):
         learning_rate=params["learning_rate"],
         per_device_train_batch_size=params["batch_size"],
         gradient_accumulation_steps=params["grad_acc_steps"],
+        generation_batch_size=params["batch_size"],
         num_train_epochs=params["num_train_epochs"],
         temperature=params["online_temperature"],
         num_generations=params["num_generations"],
@@ -194,9 +141,15 @@ def main(params):
         beta=params["beta"],
         report_to="wandb",
         run_name=wandb_id,
-        use_vllm=params["use_vllm"],
-        max_prompt_length=None,
+        max_prompt_length=params["max_seq_len"],
         disable_tqdm=True,  # To avoid double tqdm bars because of CustomProgressCallback
+        seed=params["trl_seed"],
+        epsilon_high=0.28,
+        scale_rewards=False,
+        num_iterations=params["num_iterations"],
+        use_vllm=params["use_vllm"],
+        vllm_mode="colocate",
+        vllm_gpu_memory_utilization=0.7,
     )
     trainer = TTT_GRPOTrainer(
         model=model,
@@ -210,8 +163,8 @@ def main(params):
         logfile=logfile,
         target=params["target"],
         strategy=params["strategy"],
-        task=params["task"],
-        arc_dataset_file=params["arc_dataset_file"],
+        task=task,
+        dataset_file=params["dataset_file"],
         generation_args={},
         grpo_weight=params["grpo_weight"],
         nll_weight=params["nll_weight"],
@@ -222,21 +175,25 @@ def main(params):
         inject_best_at_lowest_score=params["inject_best_at_lowest_score"],
         inf_batch_size=params["inf_batch_size"],
         use_early_stopping=params["use_early_stopping"],
-        neighborhood_sampling=params["neighborhood_sampling"],
-        n_neighbors=params["n_neighbors"],
+        sampling_strategy=params["migrate_sampling_strategy"],
+        migrate_gamma=params["migrate_gamma"],
+        migrate_alpha=params["migrate_alpha"],
+        migrate_beta=params["migrate_beta"],
+        opro_sampling=params["opro_sampling"],
         callbacks=[CustomProgressCallback()],
         use_barc_format=params["use_barc_format"],
         use_induction=params["use_induction"],
+        warmstart_seed=params["warmstart_seed"],
+        greedy_topk=params["greedy_topk"],
+        include_scores=params["include_scores"],
+        compute_entropy=params["compute_entropy"],
+        semantle_warmstart_file=params["semantle_warmstart_file"],
     )
 
     start_time = time.time()
     if not params["only_inference"]:
         trainer.train()
         wandb.config.update(params)
-        _model_for_inference = trainer.model
-    else:
-        _model_for_inference = model
-        wandb.init(project="ttt-arc", id=wandb_id)
 
     # Update wandb run with tags
     if params["wandb_tags"] is not None:
@@ -251,49 +208,59 @@ def main(params):
         json.dump(data, file, indent=2)
 
     print("\n==================\nRUNNING ON TEST\n==================")
-    if params["use_induction"]:
+    _model_for_inference = trainer.model
+    if params["task"] == "arc":
         programs_from_training = None
         if not params["only_inference"]:
             programs_from_training = []
             with open(logfile, "r") as file:
                 data = json.load(file)
-                for iteration in data['guesses']:
-                    batch = next(iter(iteration.values()))
-                    programs_from_training.extend([x[0] for x in batch])
+                for batch in data["guesses"]:
+                    for guess in batch[0]["completions_scores"]:
+                        programs_from_training.append(guess[0])
         data.update(
             run_induction_inference(
-                trainer, tokenizer, _model_for_inference, training_dataset, test_dataset, params, programs_from_training
+                trainer,
+                tokenizer,
+                _model_for_inference,
+                training_dataset,
+                test_dataset,
+                params,
+                programs_from_training,
+                task,
             )
         )
-    else:
-        data.update(
-            run_transduction_inference(trainer, tokenizer, _model_for_inference, training_dataset, test_dataset, params)
+
+        # Save these logs to wandb
+        wandb.run.summary["test/solved_majority"] = (
+            [x["score"] == 1 for x in data["pass1"]] if data["pass1"] is not None else 0
         )
+        wandb.run.summary["test/score_majority"] = (
+            [x["score"] for x in data["pass1"]] if data["pass1"] is not None else 0
+        )
+        wandb.run.summary["test/solved_majority_pass2"] = (
+            [x["score"] == 1 for x in data["pass2"]] if data["pass2"] is not None else 0
+        )
+        wandb.run.summary["test/score_majority_pass2"] = (
+            [x["score"] for x in data["pass2"]] if data["pass2"] is not None else 0
+        )
+        wandb.run.summary["test/solved_oracle"] = [x == 1 for x in data["oracle"]["score"]]
+        wandb.run.summary["test/best_score"] = data["oracle"]["score"]
+        wandb.run.summary["test/best_completion"] = data["oracle"]["output"]
 
-    # Save these logs to wandb
-    wandb.run.summary["test/solved_majority"] = data["pass1"]["score"] == 1 if data["pass1"] is not None else 0
-    wandb.run.summary["test/score_majority"] = data["pass1"]["score"] if data["pass1"] is not None else 0
-    wandb.run.summary["test/solved_majority_pass2"] = data["pass2"]["score"] == 1 if data["pass2"] is not None else 0
-    wandb.run.summary["test/score_majority_pass2"] = data["pass2"]["score"] if data["pass2"] is not None else 0
-    wandb.run.summary["test/solved_oracle"] = data["oracle"]["score"] == 1
-    wandb.run.summary["test/best_score"] = data["oracle"]["score"]
-    wandb.run.summary["test/best_completion"] = data["oracle"]["output"]
+        print(f"TEST SOLVED ORACLE: {data['oracle']['score'] == 1}")
+        if np.mean(data["oracle"]["score"]) < 1:
+            print(f"BEST COMPLETION: {data['oracle']['output']}")
 
-    # print(f"TEST SOLVED @ pass1: {data['pass1']['score'] == 1}")
-    # print(f"TEST SOLVED @ pass2: {data['pass2']['score'] == 1}")
-    print(f"TEST SOLVED ORACLE: {data['oracle']['score'] == 1}")
-    if data["oracle"]["score"] < 1:
-        print(f"BEST COMPLETION: {data['oracle']['output']}")
-
-    with open(logfile, "w") as file:
-        json.dump(data, file, indent=4)
+        with open(logfile, "w") as file:
+            json.dump(data, file, indent=4)
 
     wandb.run.summary["log_fpath"] = logfile
     wandb.finish()
 
     # Save model
     if params["save_model"]:
-        model.save_pretrained_merged(logdir, tokenizer, save_method="lora")
+        model.save_pretrained(logdir)
 
     torch.cuda.empty_cache()
 
