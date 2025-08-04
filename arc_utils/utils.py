@@ -5,6 +5,7 @@ import json
 from arc_utils.execute import execute_transformation, wrapped_execute_transformation
 from pebble import ProcessPool, ProcessExpired
 
+
 def color_to_number(color):
     mapping = {
         "BLACK": 0,
@@ -111,7 +112,7 @@ class GridConverter:
                     return np.array([[]])
         else:
             return parse_response(encoded_str)
-    
+
     def batch_decode(self, encoded_str, input_grid=None):
         # Decode generated outputs into numpy grid representation
         if self.use_barc_format:
@@ -119,9 +120,9 @@ class GridConverter:
                 parsed_codes = parse_code(encoded_str)
                 if parsed_codes:
                     code = parsed_codes[-1]
-                    
+
                     job_args = [(code, grid, 1, "transform", True) for i, grid in enumerate(input_grid)]
-                    
+
                     ordered_results = [np.array([[]])] * len(job_args)
                     with ProcessPool(max_workers=4) as pool:
                         future = pool.map(wrapped_execute_transformation, job_args)
@@ -140,7 +141,7 @@ class GridConverter:
                                 print("%s. Exit code: %d" % (error, error.exitcode))
                             except Exception as error:
                                 print("function raised %s" % error)
-                    
+
                     return ordered_results
                 else:
                     return [np.array([[]])] * len(encoded_str)
@@ -230,7 +231,7 @@ def hamming_distance(solution, attempt):
     - float: The normalized hamming distance between the solution and attempt.
     """
     # attempt must be a 2D array
-    if attempt is not None and len(attempt.shape) == 2:
+    if attempt is not None and len(attempt.shape) == 2 and attempt.size <= solution.size:
         output_size = solution.shape[0] * solution.shape[1]
         # if shapes are different find the minimum shape
         min_width = min(solution.shape[1], attempt.shape[1])
