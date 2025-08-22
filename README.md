@@ -1,5 +1,6 @@
-# MiGrATe: Mixed-Policy GRPO for Adaptation at Test-Time
 ![banner](figs/banner.png)
+# MiGrATe: Mixed-Policy GRPO for Adaptation at Test-Time
+> Paper: https://www.arxiv.org/abs/2508.08641
 
 ## Overview
 **MiGrATe** is a test-time adaptation framework that iteratively searches for optimal solutions in challenging domains. Given a search problem, MiGrATe iteratively searches for optimal solutions by sampling candidates and updating its policy model $\pi_\theta^t$ using mixed-policy GRPO.
